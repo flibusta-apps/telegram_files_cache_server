@@ -15,7 +15,7 @@ router = APIRouter(
 
 @router.get("/{object_id}/{object_type}", response_model=CachedFile)
 async def get_cached_file(object_id: int, object_type: str):
-    cached_file = await CachedFileDB.objects.get(
+    cached_file = await CachedFileDB.objects.get_or_none(
         object_id=object_id,
         object_type=object_type
     )
