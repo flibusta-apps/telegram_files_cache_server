@@ -1,8 +1,11 @@
+from typing import Optional
+
 import asyncio
 
-from app.services.library_client import get_books, Book
+from app.services.library_client import get_books, get_book, Book
 from app.services.downloader import download
 from app.services.files_uploader import upload_file
+from app.services.caption_getter import get_caption
 from app.models import CachedFile
 
 
@@ -38,6 +41,25 @@ class CacheUpdater:
         
         self.all_books_checked = True
 
+    @classmethod
+    async def _cache_file(cls, book: Book, file_type) -> Optional[CachedFile]:
+        data = await download(book.source.id, book.remote_id, file_type)
+
+        if data is None:
+            return None
+
+        content, filename = data
+
+        caption = get_caption(book)
+
+        upload_data = await upload_file(content, filename, caption)
+
+        return await CachedFile.objects.create(
+            object_id=book.id,
+            object_type=file_type,
+            data=upload_data.data
+        )
+
     async def _start_worker(self):
         while not self.all_books_checked or not self.queue.empty():
             try:
@@ -48,20 +70,7 @@ class CacheUpdater:
                 await asyncio.sleep(0.1)
                 continue
             
-            data = await download(book.source.id, book.remote_id, file_type)
-
-            if data is None:
-                return
-
-            content, filename = data
-
-            upload_data = await upload_file(content, filename, 'Test')
-
-            await CachedFile.objects.create(
-                object_id=book.id,
-                object_type=file_type,
-                data=upload_data.data
-            )
+            await self._cache_file(book, file_type)
 
     async def _update(self):
         await asyncio.gather(
@@ -74,3 +83,12 @@ class CacheUpdater:
     async def update(cls):
         updater = cls()
         return await updater._update()
+
+    @classmethod
+    async def cache_file(cls, book_id: int, file_type: str) -> Optional[CachedFile]:
+        book = await get_book(book_id)
+
+        if file_type not in book.available_types:
+            return None  # ToDO: raise HTTPException
+
+        return await cls._cache_file(book, file_type)

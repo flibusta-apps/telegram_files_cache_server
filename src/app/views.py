@@ -21,6 +21,9 @@ async def get_cached_file(object_id: int, object_type: str):
     )
 
     if not cached_file:
+        cached_file = await CacheUpdater.cache_file(object_id, object_type)
+    
+    if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     
     return cached_file
