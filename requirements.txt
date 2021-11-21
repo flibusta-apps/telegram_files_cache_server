@@ -1,0 +1,8 @@
+fastapi
+pydantic
+asyncpg
+psycopg2
+httpx
+ormar
+alembic
+uvicorn[standart]
