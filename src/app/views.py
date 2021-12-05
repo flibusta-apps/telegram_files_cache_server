@@ -47,7 +47,7 @@ async def delete_cached_file(object_id: int, object_type: str):
 @router.post("/", response_model=CachedFile)
 async def create_cached_file(data: CreateCachedFile):
     return await CachedFileDB.objects.create(
-        *data.dict()
+        **data.dict()
     )
 
 
