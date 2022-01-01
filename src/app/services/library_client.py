@@ -1,13 +1,13 @@
-from typing import Generic, TypeVar
-from pydantic import BaseModel
 from datetime import date
+from typing import Generic, TypeVar
+
+import httpx
+from pydantic import BaseModel
 
 from core.config import env_config
 
-import httpx
 
-
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class Page(BaseModel, Generic[T]):
@@ -49,14 +49,22 @@ AUTH_HEADERS = {"Authorization": env_config.LIBRARY_API_KEY}
 
 async def get_book(book_id: int) -> BookDetail:
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS)
+        response = await client.get(
+            f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS
+        )
 
         return BookDetail.parse_obj(response.json())
 
 
 async def get_books(page: int, page_size: int) -> Page[Book]:
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{env_config.LIBRARY_URL}/api/v1/books/?page={page}&size={page_size}&is_deleted=false", headers=AUTH_HEADERS)
+        response = await client.get(
+            (
+                f"{env_config.LIBRARY_URL}/api/v1/books/"
+                f"?page={page}&size={page_size}&is_deleted=false"
+            ),
+            headers=AUTH_HEADERS,
+        )
 
         data = response.json()
 

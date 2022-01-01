@@ -1,12 +1,11 @@
+import asyncio
 from typing import Optional
 
-import asyncio
-
-from app.services.library_client import get_books, get_book, Book
+from app.models import CachedFile
+from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_uploader import upload_file
-from app.services.caption_getter import get_caption
-from app.models import CachedFile
+from app.services.library_client import get_books, get_book, Book
 
 
 PAGE_SIZE = 50
@@ -38,7 +37,7 @@ class CacheUpdater:
 
             for book in page.items:
                 await self._check_book(book)
-        
+
         self.all_books_checked = True
 
     @classmethod
@@ -55,9 +54,7 @@ class CacheUpdater:
         upload_data = await upload_file(content, filename, caption)
 
         return await CachedFile.objects.create(
-            object_id=book.id,
-            object_type=file_type,
-            data=upload_data.data
+            object_id=book.id, object_type=file_type, data=upload_data.data
         )
 
     async def _start_worker(self):
@@ -69,14 +66,12 @@ class CacheUpdater:
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.1)
                 continue
-            
+
             await self._cache_file(book, file_type)
 
     async def _update(self):
         await asyncio.gather(
-            self._start_producer(),
-            self._start_worker(),
-            self._start_worker()
+            self._start_producer(), self._start_worker(), self._start_worker()
         )
 
     @classmethod

@@ -17,9 +17,15 @@ async def upload_file(content: bytes, filename: str, caption: str) -> UploadedFi
     headers = {"Authorization": env_config.FILES_SERVER_API_KEY}
 
     async with httpx.AsyncClient() as client:
-        form = {'caption': caption}
-        files = {'file': (filename, content)}
+        form = {"caption": caption}
+        files = {"file": (filename, content)}
 
-        response = await client.post(f"{env_config.FILES_SERVER_URL}/api/v1/files/upload/", data=form, files=files, headers=headers, timeout=5 * 60)
+        response = await client.post(
+            f"{env_config.FILES_SERVER_URL}/api/v1/files/upload/",
+            data=form,
+            files=files,
+            headers=headers,
+            timeout=5 * 60,
+        )
 
         return UploadedFile.parse_obj(response.json())
