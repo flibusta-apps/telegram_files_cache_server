@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from asyncpg import exceptions
+
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
@@ -41,8 +43,18 @@ async def delete_cached_file(object_id: int, object_type: str):
 
 
 @router.post("/", response_model=CachedFile)
-async def create_cached_file(data: CreateCachedFile):
-    return await CachedFileDB.objects.create(**data.dict())
+async def create_or_update_cached_file(data: CreateCachedFile):
+    try:
+        return await CachedFileDB.objects.create(**data.dict())
+    except exceptions.UniqueViolationError:
+        data_dict = data.dict()
+        object_id = data_dict.pop("object_id")
+        object_type = data_dict.pop("object_type")
+        cached_file = await CachedFileDB.objects.get(
+            object_id=object_id, object_type=object_type
+        )
+        cached_file.update_from_dict(data_dict)
+        return await cached_file.update()
 
 
 @router.post("/update_cache")
