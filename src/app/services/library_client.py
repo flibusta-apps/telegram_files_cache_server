@@ -15,6 +15,7 @@ class Page(BaseModel, Generic[T]):
     total: int
     page: int
     size: int
+    total_pages: int
 
 
 class BookAuthor(BaseModel):
@@ -57,7 +58,7 @@ async def get_book(book_id: int) -> BookDetail:
 
 
 async def get_books(page: int, page_size: int) -> Page[Book]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         response = await client.get(
             (
                 f"{env_config.LIBRARY_URL}/api/v1/books/"

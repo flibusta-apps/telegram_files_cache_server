@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 
 from asyncpg import exceptions
 
@@ -58,5 +58,7 @@ async def create_or_update_cached_file(data: CreateCachedFile):
 
 
 @router.post("/update_cache")
-async def update_cache():
-    await CacheUpdater.update()
+async def update_cache(background_tasks: BackgroundTasks):
+    background_tasks.add_task(CacheUpdater.update)
+
+    return "Ok!"
