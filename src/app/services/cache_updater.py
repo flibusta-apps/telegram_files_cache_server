@@ -79,7 +79,7 @@ class CacheUpdater:
         logger.info("Start update...")
         await asyncio.gather(
             self._start_producer(),
-            *[self._start_worker() for _ in range(2)],
+            *[self._start_worker() for _ in range(4)],
         )
         logger.info("Update complete!")
 
