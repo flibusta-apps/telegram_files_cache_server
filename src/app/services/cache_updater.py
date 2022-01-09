@@ -5,7 +5,7 @@ from typing import Optional
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
 from app.services.downloader import download
-from app.services.files_uploader import upload_file
+from app.services.files_client import upload_file
 from app.services.library_client import get_books, get_book, Book
 
 

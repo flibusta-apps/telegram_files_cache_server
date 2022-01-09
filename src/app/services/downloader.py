@@ -25,3 +25,19 @@ async def download(
         name = content_disposition.replace("attachment; filename=", "")
 
         return response.content, name
+
+
+async def get_filename(book_id: int, file_type: str) -> Optional[str]:
+    headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{env_config.DOWNLOADER_URL}/filename/{book_id}/{file_type}",
+            headers=headers,
+            timeout=5 * 60,
+        )
+
+        if response.status_code != 200:
+            return None
+
+        return response.text
