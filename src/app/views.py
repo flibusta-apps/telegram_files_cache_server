@@ -1,3 +1,5 @@
+import base64
+
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 
 from starlette.responses import Response
@@ -8,8 +10,10 @@ from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
 from app.services.cache_updater import CacheUpdater
+from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
+from app.services.library_client import get_book
 
 
 router = APIRouter(
@@ -55,8 +59,16 @@ async def download_cached_file(object_id: int, object_type: str):
 
     filename = await get_filename(object_id, object_type)
 
+    book = await get_book(object_id)
+
     return Response(
-        data, headers={"Content-Disposition": f"attachment; filename={filename}"}
+        data,
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Caption-B64": base64.b64encode(get_caption(book).encode("utf-8")).decode(
+                "latin-1"
+            ),
+        },
     )
 
 
