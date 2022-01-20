@@ -19,5 +19,9 @@ class EnvConfig(BaseSettings):
     FILES_SERVER_API_KEY: str
     FILES_SERVER_URL: str
 
+    REDIS_HOST: str
+    REDIS_PORT: int
+    REDIS_DB: int
+
 
 env_config = EnvConfig()

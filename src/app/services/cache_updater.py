@@ -1,6 +1,7 @@
-import asyncio
 import logging
 from typing import Optional
+
+from arq.connections import ArqRedis
 
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
@@ -20,79 +21,57 @@ class FileTypeNotAllowed(Exception):
         super().__init__(message)
 
 
-class CacheUpdater:
-    def __init__(self):
-        self.queue = asyncio.Queue(maxsize=10)
-        self.all_books_checked = False
+async def check_book(book: Book, arq_pool: ArqRedis) -> None:
+    for file_type in book.available_types:
+        exists = await CachedFile.objects.filter(
+            object_id=book.id, object_type=file_type
+        ).exists()
 
-    async def _check_book(self, book: Book):
-        for file_type in book.available_types:
-            exists = await CachedFile.objects.filter(
-                object_id=book.id, object_type=file_type
-            ).exists()
+        if not exists:
+            await arq_pool.enqueue_job("cache_file_by_book_id", book.id, file_type)
 
-            if not exists:
-                await self.queue.put((book, file_type))
 
-    async def _start_producer(self):
-        books_page = await get_books(1, PAGE_SIZE)
+async def check_books_page(ctx, page_number: int) -> None:
+    arq_pool: ArqRedis = ctx["arc_pool"]
 
-        for page_number in range(1, books_page.total_pages + 1):
-            page = await get_books(page_number, PAGE_SIZE)
+    page = await get_books(page_number, PAGE_SIZE)
 
-            for book in page.items:
-                await self._check_book(book)
+    for book in page.items:
+        await check_book(book, arq_pool)
 
-        self.all_books_checked = True
 
-    @classmethod
-    async def _cache_file(cls, book: Book, file_type) -> Optional[CachedFile]:
-        logger.info(f"Cache {book.id} {file_type}...")
-        data = await download(book.source.id, book.remote_id, file_type)
+async def check_books(ctx) -> None:
+    arq_pool: ArqRedis = ctx["arc_pool"]
+    books_page = await get_books(1, PAGE_SIZE)
 
-        if data is None:
-            return None
+    for page_number in range(1, books_page.total_pages + 1):
+        await arq_pool.enqueue_job("check_books_page", page_number)
 
-        content, filename = data
 
-        caption = get_caption(book)
+async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
+    logger.info(f"Cache {book.id} {file_type}...")
+    data = await download(book.source.id, book.remote_id, file_type)
 
-        upload_data = await upload_file(content, filename, caption)
+    if data is None:
+        return None
 
-        return await CachedFile.objects.create(
-            object_id=book.id, object_type=file_type, data=upload_data.data
-        )
+    content, filename = data
 
-    async def _start_worker(self):
-        while not self.all_books_checked or not self.queue.empty():
-            try:
-                task = self.queue.get_nowait()
-                book: Book = task[0]
-                file_type: str = task[1]
-            except asyncio.QueueEmpty:
-                await asyncio.sleep(0.1)
-                continue
+    caption = get_caption(book)
 
-            await self._cache_file(book, file_type)
+    upload_data = await upload_file(content, filename, caption)
 
-    async def _update(self):
-        logger.info("Start update...")
-        await asyncio.gather(
-            self._start_producer(),
-            *[self._start_worker() for _ in range(4)],
-        )
-        logger.info("Update complete!")
+    return await CachedFile.objects.create(
+        object_id=book.id, object_type=file_type, data=upload_data.data
+    )
 
-    @classmethod
-    async def update(cls):
-        updater = cls()
-        return await updater._update()
 
-    @classmethod
-    async def cache_file(cls, book_id: int, file_type: str) -> Optional[CachedFile]:
-        book = await get_book(book_id)
+async def cache_file_by_book_id(
+    ctx, book_id: int, file_type: str
+) -> Optional[CachedFile]:
+    book = await get_book(book_id)
 
-        if file_type not in book.available_types:
-            raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
+    if file_type not in book.available_types:
+        raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
 
-        return await cls._cache_file(book, file_type)
+    return await cache_file(book, file_type)

@@ -11,6 +11,7 @@ httpx = "^0.21.1"
 alembic = "^1.7.5"
 ormar = {extras = ["postgresql"], version = "^0.10.23"}
 uvicorn = {extras = ["standart"], version = "^0.16.0"}
+arq = "^0.22"
 
 [tool.poetry.dev-dependencies]
 

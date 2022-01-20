@@ -1,15 +1,16 @@
 import base64
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 
 from starlette.responses import Response
 
+from arq.connections import ArqRedis
 from asyncpg import exceptions
 
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
-from app.services.cache_updater import CacheUpdater
+from app.services.cache_updater import cache_file_by_book_id
 from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
@@ -28,7 +29,7 @@ async def get_cached_file(object_id: int, object_type: str):
     )
 
     if not cached_file:
-        cached_file = await CacheUpdater.cache_file(object_id, object_type)
+        cached_file = await cache_file_by_book_id(object_id, object_type)
 
     if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -43,7 +44,7 @@ async def download_cached_file(object_id: int, object_type: str):
     )
 
     if not cached_file:
-        cached_file = await CacheUpdater.cache_file(object_id, object_type)
+        cached_file = await cache_file_by_book_id(object_id, object_type)
 
     if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -102,7 +103,8 @@ async def create_or_update_cached_file(data: CreateCachedFile):
 
 
 @router.post("/update_cache")
-async def update_cache(background_tasks: BackgroundTasks):
-    background_tasks.add_task(CacheUpdater.update)
+async def update_cache(request: Request):
+    arq_pool: ArqRedis = request.app.state.arq_pool
+    await arq_pool.enqueue_job("check_books")
 
     return "Ok!"
