@@ -29,7 +29,7 @@ async def get_cached_file(object_id: int, object_type: str):
     )
 
     if not cached_file:
-        cached_file = await cache_file_by_book_id(object_id, object_type)
+        cached_file = await cache_file_by_book_id({}, object_id, object_type)
 
     if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
@@ -44,7 +44,7 @@ async def download_cached_file(object_id: int, object_type: str):
     )
 
     if not cached_file:
-        cached_file = await cache_file_by_book_id(object_id, object_type)
+        cached_file = await cache_file_by_book_id({}, object_id, object_type)
 
     if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)

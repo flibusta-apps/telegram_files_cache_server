@@ -24,4 +24,4 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
-    max_jobs = 4
+    max_jobs = 2

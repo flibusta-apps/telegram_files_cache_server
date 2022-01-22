@@ -14,6 +14,6 @@ class CachedFile(ormar.Model):
         constraints = [ormar.UniqueColumns("object_id", "object_type")]
 
     id: int = ormar.Integer(primary_key=True)  # type: ignore
-    object_id: int = ormar.Integer()  # type: ignore
-    object_type: str = ormar.String(max_length=8)  # type: ignore
+    object_id: int = ormar.Integer(index=True)  # type: ignore
+    object_type: str = ormar.String(max_length=8, index=True)  # type: ignore
     data: dict = ormar.JSON()  # type: ignore
