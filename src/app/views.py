@@ -108,3 +108,8 @@ async def update_cache(request: Request):
     await arq_pool.enqueue_job("check_books")
 
     return "Ok!"
+
+
+@router.get("/healthcheck")
+async def healthcheck():
+    return "Ok!"
