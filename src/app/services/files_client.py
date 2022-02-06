@@ -32,17 +32,22 @@ async def upload_file(content: bytes, filename: str, caption: str) -> UploadedFi
         return UploadedFile.parse_obj(response.json())
 
 
-async def download_file(chat_id: int, message_id: int) -> Optional[bytes]:
+async def download_file(
+    chat_id: int, message_id: int
+) -> Optional[tuple[httpx.Response, httpx.AsyncClient]]:
     headers = {"Authorization": env_config.FILES_SERVER_API_KEY}
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.get(
-            f"{env_config.FILES_SERVER_URL}"
-            f"/api/v1/files/download_by_message/{chat_id}/{message_id}",
-            headers=headers,
-        )
+    client = httpx.AsyncClient(timeout=60)
+    request = client.build_request(
+        "GET",
+        f"{env_config.FILES_SERVER_URL}"
+        f"/api/v1/files/download_by_message/{chat_id}/{message_id}",
+        headers=headers,
+    )
 
-        if response.status_code != 200:
-            return None
+    response = await client.send(request, stream=True)
 
-        return response.content
+    if response.status_code != 200:
+        return None
+
+    return response, client

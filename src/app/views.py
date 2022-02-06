@@ -1,8 +1,10 @@
+import asyncio
 import base64
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.responses import StreamingResponse
 
-from starlette.responses import Response
+from starlette.background import BackgroundTask
 
 from arq.connections import ArqRedis
 from asyncpg import exceptions
@@ -51,25 +53,30 @@ async def download_cached_file(object_id: int, object_type: str):
 
     cache_data = cached_file.data
 
-    data = await download_file_from_cache(
-        cache_data["chat_id"], cache_data["message_id"]
+    data, filename, book = await asyncio.gather(
+        download_file_from_cache(cache_data["chat_id"], cache_data["message_id"]),
+        get_filename(object_id, object_type),
+        get_book(object_id),
     )
 
     if data is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    filename = await get_filename(object_id, object_type)
+    response, client = data
 
-    book = await get_book(object_id)
+    async def close():
+        await response.aclose()
+        await client.aclose()
 
-    return Response(
-        data,
+    return StreamingResponse(
+        response.aiter_bytes(),
         headers={
             "Content-Disposition": f"attachment; filename={filename}",
             "X-Caption-B64": base64.b64encode(get_caption(book).encode("utf-8")).decode(
                 "latin-1"
             ),
         },
+        background=BackgroundTask(close),
     )
 
 
