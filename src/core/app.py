@@ -2,7 +2,7 @@ from fastapi import FastAPI
 
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.views import router
+from app.views import router, healthcheck_router
 from core.arq_pool import get_arq_pool
 from core.db import database
 
@@ -13,6 +13,7 @@ def start_app() -> FastAPI:
     app.state.database = database
 
     app.include_router(router)
+    app.include_router(healthcheck_router)
 
     @app.on_event("startup")
     async def startup() -> None:

@@ -117,6 +117,11 @@ async def update_cache(request: Request):
     return "Ok!"
 
 
-@router.get("/healthcheck")
+healthcheck_router = APIRouter(
+    tags=["healthcheck"],
+)
+
+
+@healthcheck_router.get("/healthcheck")
 async def healthcheck():
     return "Ok!"
