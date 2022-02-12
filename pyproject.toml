@@ -12,6 +12,7 @@ alembic = "^1.7.5"
 ormar = {extras = ["postgresql"], version = "^0.10.23"}
 uvicorn = {extras = ["standart"], version = "^0.16.0"}
 arq = "^0.22"
+prometheus-fastapi-instrumentator = "^5.7.1"
 
 [tool.poetry.dev-dependencies]
 
