@@ -7,24 +7,24 @@ from core.config import env_config
 
 async def download(
     source_id: int, remote_id: int, file_type: str
-) -> Optional[tuple[bytes, str]]:
+) -> Optional[tuple[httpx.Response, httpx.AsyncClient, str]]:
     headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{env_config.DOWNLOADER_URL}/download/{source_id}/{remote_id}/{file_type}",
-            headers=headers,
-            timeout=5 * 60,
-        )
+    client = httpx.AsyncClient(timeout=120)
+    request = client.build_request(
+        "GET",
+        f"{env_config.DOWNLOADER_URL}/download/{source_id}/{remote_id}/{file_type}",
+        headers=headers,
+    )
+    response = await client.send(request, stream=True)
 
-        if response.status_code != 200:
-            return None
+    if response.status_code != 200:
+        return None
 
-        content_disposition = response.headers["Content-Disposition"]
+    content_disposition = response.headers["Content-Disposition"]
+    name = content_disposition.replace("attachment; filename=", "")
 
-        name = content_disposition.replace("attachment; filename=", "")
-
-        return response.content, name
+    return response, client, name
 
 
 async def get_filename(book_id: int, file_type: str) -> Optional[str]:
