@@ -65,10 +65,13 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
         await temp_file.write(chunk)
     await temp_file.seek(0)
 
-    upload_data = await upload_file(cast(SpooledTemporaryFile, temp_file.file), filename, caption)
-
     await response.aclose()
     await client.aclose()
+
+    upload_data = await upload_file(cast(SpooledTemporaryFile, temp_file.file), filename, caption)
+
+    if upload_data is None:
+        return None
 
     return await CachedFile.objects.create(
         object_id=book.id, object_type=file_type, data=upload_data.data
