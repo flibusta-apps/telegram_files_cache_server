@@ -1,3 +1,5 @@
+from arq.cron import cron
+
 from app.services.cache_updater import (
     check_books,
     cache_file_by_book_id,
@@ -24,5 +26,8 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
-    max_jobs = 2
+    max_jobs = 1
     job_timeout = 3 * 60
+    cron_jobs = [
+        cron("check_books", hour={7}, minute=0)
+    ]
