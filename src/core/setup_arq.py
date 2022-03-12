@@ -25,3 +25,4 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
     max_jobs = 2
+    job_timeout = 3 * 60
