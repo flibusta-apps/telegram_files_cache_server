@@ -29,5 +29,5 @@ class WorkerSettings:
     max_jobs = 1
     job_timeout = 3 * 60
     cron_jobs = [
-        cron("check_books", hour={7}, minute=0)
+        cron(check_books, hour={7}, minute=0)
     ]

@@ -42,7 +42,7 @@ async def check_books_page(ctx, page_number: int) -> None:
         await check_book(book, arq_pool)
 
 
-async def check_books(ctx) -> None:
+async def check_books(ctx: dict, *args, **kwargs) -> None:
     arq_pool: ArqRedis = ctx["arc_pool"]
     books_page = await get_books(1, PAGE_SIZE)
 
