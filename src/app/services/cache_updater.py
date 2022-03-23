@@ -1,3 +1,4 @@
+import collections
 import logging
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
@@ -24,23 +25,23 @@ class FileTypeNotAllowed(Exception):
         super().__init__(message)
 
 
-async def check_book(book: Book, arq_pool: ArqRedis) -> None:
-    for file_type in book.available_types:
-        exists = await CachedFile.objects.filter(
-            object_id=book.id, object_type=file_type
-        ).exists()
-
-        if not exists:
-            await arq_pool.enqueue_job("cache_file_by_book_id", book.id, file_type)
-
-
 async def check_books_page(ctx, page_number: int) -> None:
     arq_pool: ArqRedis = ctx["arc_pool"]
 
     page = await get_books(page_number, PAGE_SIZE)
 
+    object_ids = [book.id for book in page.items]
+
+    cached_files = await CachedFile.objects.filter(object_id__in=object_ids).all()
+
+    cached_files_map = collections.defaultdict(set)
+    for cached_file in cached_files:
+        cached_files_map[cached_file.object_id].add(cached_file.object_type)
+
     for book in page.items:
-        await check_book(book, arq_pool)
+        for file_type in book.available_types:
+            if file_type not in cached_files_map[book.id]:
+                await arq_pool.enqueue_job("cache_file_by_book_id", book.id, file_type)
 
 
 async def check_books(ctx: dict, *args, **kwargs) -> None:
