@@ -61,7 +61,7 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
     data = await download(book.source.id, book.remote_id, file_type)
 
     if data is None:
-        return None
+        raise Retry(defer=60)
 
     response, client, filename = data
     caption = get_caption(book)
