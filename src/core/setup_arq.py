@@ -22,12 +22,10 @@ async def shutdown(ctx):
 
 
 class WorkerSettings:
-    functions = [check_books, cache_file_by_book_id, check_books_page]
+    functions = [check_books, check_books_page, cache_file_by_book_id]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
     max_jobs = 1
     job_timeout = 3 * 60
-    cron_jobs = [
-        cron(check_books, hour={7}, minute=0)
-    ]
+    cron_jobs = [cron(check_books, hour={7}, minute=0)]

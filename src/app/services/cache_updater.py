@@ -1,9 +1,10 @@
 import logging
-from typing import Optional, cast
 from tempfile import SpooledTemporaryFile
+from typing import Optional, cast
+
+from fastapi import UploadFile
 
 from arq.connections import ArqRedis
-from fastapi import UploadFile
 
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
@@ -46,12 +47,11 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:
     arq_pool: ArqRedis = ctx["arc_pool"]
     books_page = await get_books(1, PAGE_SIZE)
 
-    for page_number in range(1, books_page.total_pages + 1):
+    for page_number in range(books_page.total_pages, 0, -1):
         await arq_pool.enqueue_job("check_books_page", page_number)
-    
+
 
 async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
-    logger.info(f"Cache {book.id} {file_type}...")
     data = await download(book.source.id, book.remote_id, file_type)
 
     if data is None:
@@ -68,7 +68,9 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
     await response.aclose()
     await client.aclose()
 
-    upload_data = await upload_file(cast(SpooledTemporaryFile, temp_file.file), filename, caption)
+    upload_data = await upload_file(
+        cast(SpooledTemporaryFile, temp_file.file), filename, caption
+    )
 
     if upload_data is None:
         return None
@@ -79,7 +81,7 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
 
 
 async def cache_file_by_book_id(
-    ctx, book_id: int, file_type: str
+    ctx: dict, book_id: int, file_type: str
 ) -> Optional[CachedFile]:
     book = await get_book(book_id)
 
