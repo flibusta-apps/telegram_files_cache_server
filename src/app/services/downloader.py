@@ -19,6 +19,8 @@ async def download(
     response = await client.send(request, stream=True)
 
     if response.status_code != 200:
+        await response.aclose()
+        await client.aclose()
         return None
 
     content_disposition = response.headers["Content-Disposition"]
