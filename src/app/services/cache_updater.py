@@ -6,6 +6,8 @@ from typing import Optional, cast
 from fastapi import UploadFile
 
 from arq.connections import ArqRedis
+from arq.worker import Retry
+import httpx
 
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
@@ -46,7 +48,10 @@ async def check_books_page(ctx, page_number: int) -> None:
 
 async def check_books(ctx: dict, *args, **kwargs) -> None:
     arq_pool: ArqRedis = ctx["arc_pool"]
-    books_page = await get_books(1, PAGE_SIZE)
+    try:
+        books_page = await get_books(1, PAGE_SIZE)
+    except httpx.ConnectError:
+        raise Retry(defer=15)
 
     for page_number in range(books_page.total_pages, 0, -1):
         await arq_pool.enqueue_job("check_books_page", page_number)
@@ -84,7 +89,10 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
 async def cache_file_by_book_id(
     ctx: dict, book_id: int, file_type: str
 ) -> Optional[CachedFile]:
-    book = await get_book(book_id)
+    try:
+        book = await get_book(book_id)
+    except httpx.ConnectError:
+        raise Retry(defer=15)
 
     if file_type not in book.available_types:
         raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
