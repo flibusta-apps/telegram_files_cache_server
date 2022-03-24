@@ -13,6 +13,8 @@ ormar = {extras = ["postgresql"], version = "^0.10.23"}
 uvicorn = {extras = ["standart"], version = "^0.16.0"}
 arq = "^0.22"
 prometheus-fastapi-instrumentator = "^5.7.1"
+uvloop = "^0.16.0"
+gunicorn = "^20.1.0"
 
 [tool.poetry.dev-dependencies]
 
