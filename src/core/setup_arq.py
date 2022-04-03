@@ -28,4 +28,4 @@ class WorkerSettings:
     redis_settings = get_redis_settings()
     max_jobs = 2
     job_timeout = 3 * 60
-    cron_jobs = [cron(check_books, hour={7}, minute=0)]
+    cron_jobs = [cron(check_books, hour={5}, minute=0)]
