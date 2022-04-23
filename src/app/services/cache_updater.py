@@ -43,7 +43,9 @@ async def check_books_page(ctx, page_number: int) -> None:
     for book in page.items:
         for file_type in book.available_types:
             if file_type not in cached_files_map[book.id]:
-                await arq_pool.enqueue_job("cache_file_by_book_id", book.id, file_type)
+                await arq_pool.enqueue_job(
+                    "cache_file_by_book_id", book.id, file_type, by_request=False
+                )
 
 
 async def check_books(ctx: dict, *args, **kwargs) -> None:
@@ -57,7 +59,7 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:
         await arq_pool.enqueue_job("check_books_page", page_number)
 
 
-async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
+async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     data = await download(book.source.id, book.remote_id, file_type)
 
     if data is None:
@@ -87,14 +89,24 @@ async def cache_file(book: Book, file_type) -> Optional[CachedFile]:
 
 
 async def cache_file_by_book_id(
-    ctx: dict, book_id: int, file_type: str
+    ctx: dict,
+    book_id: int,
+    file_type: str,
+    by_request: bool = True,
 ) -> Optional[CachedFile]:
     try:
         book = await get_book(book_id)
     except httpx.ConnectError:
+        if by_request:
+            return None
         raise Retry(defer=15)
 
     if file_type not in book.available_types:
         raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
 
-    return await cache_file(book, file_type)
+    try:
+        return await cache_file(book, file_type)
+    except Retry as e:
+        if by_request:
+            return None
+        raise e
