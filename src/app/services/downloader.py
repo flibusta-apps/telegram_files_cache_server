@@ -10,13 +10,18 @@ async def download(
 ) -> Optional[tuple[httpx.Response, httpx.AsyncClient, str]]:
     headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
 
-    client = httpx.AsyncClient(timeout=120)
+    client = httpx.AsyncClient(timeout=300)
     request = client.build_request(
         "GET",
         f"{env_config.DOWNLOADER_URL}/download/{source_id}/{remote_id}/{file_type}",
         headers=headers,
     )
-    response = await client.send(request, stream=True)
+
+    try:
+        response = await client.send(request, stream=True)
+    except httpx.ConnectError:
+        await client.aclose()
+        return None
 
     if response.status_code != 200:
         await response.aclose()

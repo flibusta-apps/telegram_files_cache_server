@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional
 from tempfile import SpooledTemporaryFile
+from typing import Optional
 
 import httpx
 from pydantic import BaseModel
@@ -15,7 +15,9 @@ class UploadedFile(BaseModel):
     upload_time: datetime
 
 
-async def upload_file(content: SpooledTemporaryFile, filename: str, caption: str) -> Optional[UploadedFile]:
+async def upload_file(
+    content: SpooledTemporaryFile, filename: str, caption: str
+) -> Optional[UploadedFile]:
     headers = {"Authorization": env_config.FILES_SERVER_API_KEY}
 
     async with httpx.AsyncClient() as client:
@@ -49,9 +51,15 @@ async def download_file(
         headers=headers,
     )
 
-    response = await client.send(request, stream=True)
+    try:
+        response = await client.send(request, stream=True)
+    except httpx.ConnectError:
+        await client.aclose()
+        return None
 
     if response.status_code != 200:
+        await response.aclose()
+        await client.aclose()
         return None
 
     return response, client
