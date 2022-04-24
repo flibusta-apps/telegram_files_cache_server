@@ -23,7 +23,7 @@ class EnvConfig(BaseSettings):
     REDIS_PORT: int
     REDIS_DB: int
 
-    SENTRY_SDN: str
+    SENTRY_DSN: str
 
 
 env_config = EnvConfig()
