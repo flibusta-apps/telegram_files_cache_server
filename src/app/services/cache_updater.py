@@ -48,7 +48,7 @@ async def check_books_page(ctx, page_number: int) -> None:
                 )
 
 
-async def check_books(ctx: dict, *args, **kwargs) -> None:
+async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
     arq_pool: ArqRedis = ctx["arc_pool"]
     try:
         books_page = await get_books(1, PAGE_SIZE)
@@ -89,7 +89,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
 
 
 async def cache_file_by_book_id(
-    ctx: dict,
+    ctx: dict,  # NOSONAR
     book_id: int,
     file_type: str,
     by_request: bool = True,

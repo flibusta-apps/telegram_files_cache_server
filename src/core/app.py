@@ -6,6 +6,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.views import router, healthcheck_router
 from core.arq_pool import get_arq_pool
 from core.db import database
+import core.sentry  # noqa: F401
 
 
 def start_app() -> FastAPI:
