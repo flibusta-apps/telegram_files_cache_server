@@ -49,7 +49,7 @@ AUTH_HEADERS = {"Authorization": env_config.LIBRARY_API_KEY}
 
 
 async def get_book(book_id: int) -> BookDetail:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=2 * 60) as client:
         response = await client.get(
             f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS
         )
