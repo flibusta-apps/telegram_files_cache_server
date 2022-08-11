@@ -60,6 +60,11 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
 
 
 async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
+    if await CachedFile.objects.filter(
+        object_id=book.id, object_type=file_type
+    ).exists():
+        return
+
     data = await download(book.source.id, book.remote_id, file_type)
 
     if data is None:
