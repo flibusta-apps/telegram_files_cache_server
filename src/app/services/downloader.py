@@ -10,7 +10,7 @@ async def download(
 ) -> Optional[tuple[httpx.Response, httpx.AsyncClient, str]]:
     headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
 
-    client = httpx.AsyncClient(timeout=300)
+    client = httpx.AsyncClient(timeout=600)
     request = client.build_request(
         "GET",
         f"{env_config.DOWNLOADER_URL}/download/{source_id}/{remote_id}/{file_type}",
