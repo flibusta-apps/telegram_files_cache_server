@@ -65,10 +65,15 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     ).exists():
         return
 
-    data = await download(book.source.id, book.remote_id, file_type)
+    retry_exc = Retry(defer=60)
+
+    try:
+        data = await download(book.source.id, book.remote_id, file_type)
+    except httpx.TimeoutException:
+        raise retry_exc
 
     if data is None:
-        raise Retry(defer=60)
+        raise retry_exc
 
     response, client, filename = data
     caption = get_caption(book)
