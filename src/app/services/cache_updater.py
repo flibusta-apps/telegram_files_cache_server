@@ -1,4 +1,5 @@
 import collections
+from datetime import timedelta
 import logging
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
@@ -65,7 +66,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     ).exists():
         return
 
-    retry_exc = Retry(defer=60)
+    retry_exc = Retry(defer=timedelta(minutes=15))
 
     try:
         data = await download(book.source.id, book.remote_id, file_type)
