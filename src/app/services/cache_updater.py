@@ -6,6 +6,8 @@ from typing import Optional, cast
 
 from fastapi import UploadFile
 
+import aioredis
+from aioredis.exceptions import LockError
 from arq.connections import ArqRedis
 from arq.worker import Retry
 import httpx
@@ -105,6 +107,8 @@ async def cache_file_by_book_id(
     file_type: str,
     by_request: bool = True,
 ) -> Optional[CachedFile]:
+    r_client: aioredis.Redis = ctx["redis"]
+
     try:
         book = await get_book(book_id)
     except httpx.ConnectError:
@@ -115,8 +119,14 @@ async def cache_file_by_book_id(
     if file_type not in book.available_types:
         raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
 
+    lock = r_client.lock(f"{book_id}_{file_type}", blocking_timeout=5)
+
     try:
-        return await cache_file(book, file_type)
+        try:
+            async with lock:
+                return await cache_file(book, file_type)
+        except LockError:
+            raise Retry(defer=timedelta(minutes=15))
     except Retry as e:
         if by_request:
             return None
