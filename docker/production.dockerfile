@@ -1,5 +1,9 @@
 FROM ghcr.io/kurbezz/base_docker_images:3.10-postgres-asyncpg-poetry-buildtime as build-image
 
+RUN apt-get update \
+    && apt-get install git -y --no-install-recommends \
+    && rm -rf /var/cache/*
+
 WORKDIR /root/poetry
 COPY pyproject.toml poetry.lock /root/poetry/
 

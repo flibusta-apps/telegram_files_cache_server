@@ -6,6 +6,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.views import router, healthcheck_router
 from core.arq_pool import get_arq_pool
 from core.db import database
+from core.redis_client import get_client
 import core.sentry  # noqa: F401
 
 
@@ -24,6 +25,7 @@ def start_app() -> FastAPI:
             await database_.connect()
 
         app.state.arq_pool = await get_arq_pool()
+        app.state.redis_client = get_client()
 
     @app.on_event("shutdown")
     async def shutdown() -> None:
