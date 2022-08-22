@@ -1,6 +1,7 @@
 import collections
 from datetime import timedelta
 import logging
+import random
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
@@ -68,7 +69,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     ).exists():
         return
 
-    retry_exc = Retry(defer=timedelta(minutes=15))
+    retry_exc = Retry(defer=timedelta(minutes=15).seconds * random.random())
 
     try:
         data = await download(book.source.id, book.remote_id, file_type)
@@ -126,7 +127,7 @@ async def cache_file_by_book_id(
             async with lock:
                 return await cache_file(book, file_type)
         except LockError:
-            raise Retry(defer=timedelta(minutes=15))
+            raise Retry(defer=timedelta(minutes=15).seconds * random.random())
     except Retry as e:
         if by_request:
             return None
