@@ -7,11 +7,11 @@ from typing import Optional, cast
 
 from fastapi import UploadFile
 
-import aioredis
-from aioredis.exceptions import LockError
 from arq.connections import ArqRedis
 from arq.worker import Retry
 import httpx
+from redis import asyncio as aioredis
+from redis.exceptions import LockError
 
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
