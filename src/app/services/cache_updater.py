@@ -117,6 +117,9 @@ async def cache_file_by_book_id(
             return None
         raise Retry(defer=15)
 
+    if book is None:
+        return None
+
     if file_type not in book.available_types:
         raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
 

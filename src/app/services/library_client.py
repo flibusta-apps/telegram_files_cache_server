@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -48,11 +48,14 @@ class BookDetail(Book):
 AUTH_HEADERS = {"Authorization": env_config.LIBRARY_API_KEY}
 
 
-async def get_book(book_id: int) -> BookDetail:
+async def get_book(book_id: int) -> Optional[BookDetail]:
     async with httpx.AsyncClient(timeout=2 * 60) as client:
         response = await client.get(
             f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS
         )
+
+        if response.status_code != 200:
+            return None
 
         return BookDetail.parse_obj(response.json())
 
