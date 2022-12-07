@@ -121,7 +121,7 @@ async def cache_file_by_book_id(
         return None
 
     if file_type not in book.available_types:
-        raise FileTypeNotAllowed(f"{file_type} not in {book.available_types}!")
+        return None
 
     lock = r_client.lock(f"{book_id}_{file_type}", blocking_timeout=5)
 
