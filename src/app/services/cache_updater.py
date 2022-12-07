@@ -110,15 +110,13 @@ async def cache_file_by_book_id(
 ) -> Optional[CachedFile]:
     r_client: aioredis.Redis = ctx["redis"]
 
-    try:
-        book = await get_book(book_id)
-    except httpx.ConnectError:
+    get_book_retry = 3 if by_request else 1
+    book = await get_book(book_id, get_book_retry)
+
+    if book is None:
         if by_request:
             return None
         raise Retry(defer=15)
-
-    if book is None:
-        return None
 
     if file_type not in book.available_types:
         return None

@@ -48,16 +48,22 @@ class BookDetail(Book):
 AUTH_HEADERS = {"Authorization": env_config.LIBRARY_API_KEY}
 
 
-async def get_book(book_id: int) -> Optional[BookDetail]:
-    async with httpx.AsyncClient(timeout=2 * 60) as client:
-        response = await client.get(
-            f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS
-        )
+async def get_book(book_id: int, retry: int = 3) -> Optional[BookDetail]:
+    if retry == 0:
+        return None
 
-        if response.status_code != 200:
-            return None
+    try:
+        async with httpx.AsyncClient(timeout=2 * 60) as client:
+            response = await client.get(
+                f"{env_config.LIBRARY_URL}/api/v1/books/{book_id}", headers=AUTH_HEADERS
+            )
 
-        return BookDetail.parse_obj(response.json())
+            if response.status_code != 200:
+                return None
+
+            return BookDetail.parse_obj(response.json())
+    except (httpx.ConnectError, httpx.ReadError, httpx.ReadTimeout):
+        return await get_book(book_id, retry=retry - 1)
 
 
 async def get_books(page: int, page_size: int) -> Page[Book]:
