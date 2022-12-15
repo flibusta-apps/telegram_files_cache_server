@@ -56,7 +56,7 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
         )
 
     if not cached_file:
-        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
     cache_data = cached_file.data
 
@@ -67,6 +67,7 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     )
 
     if data is None:
+        await CachedFileDB.objects.filter(id=cached_file.id).delete()
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     response, client = data
