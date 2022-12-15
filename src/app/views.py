@@ -67,13 +67,15 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     )
 
     if data is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     response, client = data
 
     async def close():
         await response.aclose()
         await client.aclose()
+
+    assert book
 
     return StreamingResponse(
         response.aiter_bytes(),
