@@ -68,6 +68,12 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
 
     if data is None:
         await CachedFileDB.objects.filter(id=cached_file.id).delete()
+
+        arq_pool: ArqRedis = request.app.state.arq_pool
+        await arq_pool.enqueue_job(
+            "cache_file_by_book_id", object_id, object_type, by_request=False
+        )
+
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     response, client = data
