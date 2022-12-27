@@ -73,7 +73,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
 
     try:
         data = await download(book.source.id, book.remote_id, file_type)
-    except httpx.TimeoutException:
+    except httpx.HTTPError:
         raise retry_exc
 
     if data is None:
