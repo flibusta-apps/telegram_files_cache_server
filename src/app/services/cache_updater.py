@@ -48,7 +48,11 @@ async def check_books_page(ctx, page_number: int) -> None:
         for file_type in book.available_types:
             if file_type not in cached_files_map[book.id]:
                 await arq_pool.enqueue_job(
-                    "cache_file_by_book_id", book.id, file_type, by_request=False
+                    "cache_file_by_book_id",
+                    book.id,
+                    file_type,
+                    by_request=False,
+                    _job_id=f"cache_file_by_book_id_{book.id}_{file_type}",
                 )
 
 
@@ -60,7 +64,12 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
         raise Retry(defer=15)
 
     for i, page_number in enumerate(range(books_page.total_pages, 0, -1)):
-        await arq_pool.enqueue_job("check_books_page", page_number, _defer_by=2 * i)
+        await arq_pool.enqueue_job(
+            "check_books_page",
+            page_number,
+            _defer_by=2 * i,
+            _job_id=f"check_books_page_{page_number}",
+        )
 
 
 async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
