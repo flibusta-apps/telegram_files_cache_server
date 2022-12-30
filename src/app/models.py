@@ -16,4 +16,8 @@ class CachedFile(ormar.Model):
     id: int = ormar.Integer(primary_key=True)  # type: ignore
     object_id: int = ormar.Integer(index=True)  # type: ignore
     object_type: str = ormar.String(max_length=8, index=True)  # type: ignore
+
+    message_id: int = ormar.BigInteger()  # type: ignore
+    chat_id: int = ormar.BigInteger()  # type: ignore
+
     data: dict = ormar.JSON()  # type: ignore
