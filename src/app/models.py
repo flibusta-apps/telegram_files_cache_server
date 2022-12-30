@@ -25,6 +25,6 @@ class CachedFile(ormar.Model):
     message_id: int = ormar.BigInteger(index=True)  # type: ignore
     chat_id: int = ormar.BigInteger()  # type: ignore
 
-    @property
+    @ormar.property_field
     def data(self) -> dict:
         return {"message_id": self.message_id, "chat_id": self.chat_id}
