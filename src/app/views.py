@@ -1,7 +1,5 @@
 import asyncio
 import base64
-import csv
-from typing import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.responses import StreamingResponse
@@ -9,7 +7,6 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from arq.connections import ArqRedis
-from asyncpg import exceptions
 
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
@@ -19,7 +16,6 @@ from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
 from app.services.library_client import get_book
-from app.utils import DummyWriter
 
 
 router = APIRouter(
@@ -112,17 +108,21 @@ async def delete_cached_file(object_id: int, object_type: str):
 
 @router.post("/", response_model=CachedFile)
 async def create_or_update_cached_file(data: CreateCachedFile):
-    try:
-        return await CachedFileDB.objects.create(**data.dict())
-    except exceptions.UniqueViolationError:
-        data_dict = data.dict()
-        object_id = data_dict.pop("object_id")
-        object_type = data_dict.pop("object_type")
-        cached_file = await CachedFileDB.objects.get(
-            object_id=object_id, object_type=object_type
-        )
-        cached_file.update_from_dict(data_dict)
+    cached_file = await CachedFileDB.objects.get_or_none(
+        object_id=data.data["object_id"], object_type=data.data["object_type"]
+    )
+
+    if cached_file is not None:
+        cached_file.message_id = data.data["message_id"]
+        cached_file.chat_id = data.data["chat_id"]
         return await cached_file.update()
+
+    return await CachedFileDB.objects.create(
+        object_id=data.object_id,
+        object_type=data.object_type,
+        message_id=data.data["message_id"],
+        chat_id=data.data["chat_id"],
+    )
 
 
 @router.post("/update_cache")
@@ -131,22 +131,6 @@ async def update_cache(request: Request):
     await arq_pool.enqueue_job("check_books", _job_id="check_books")
 
     return "Ok!"
-
-
-@router.get("/download_dump")
-async def download_dump():
-    async def get_data() -> AsyncIterator[str]:
-        writer = csv.writer(DummyWriter())
-
-        async for c_file in CachedFileDB.objects.iterate():
-            yield writer.writerow([c_file.object_id, c_file.object_type, c_file.data])
-
-    return StreamingResponse(
-        get_data(),
-        headers={
-            "Content-Disposition": "attachment; filename=dump.csv",
-        },
-    )
 
 
 healthcheck_router = APIRouter(

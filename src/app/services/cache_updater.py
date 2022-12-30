@@ -107,7 +107,10 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
         return None
 
     return await CachedFile.objects.create(
-        object_id=book.id, object_type=file_type, data=upload_data.data
+        object_id=book.id,
+        object_type=file_type,
+        message_id=upload_data.data["message_id"],
+        chat_id=upload_data.data["chat_id"],
     )
 
 
