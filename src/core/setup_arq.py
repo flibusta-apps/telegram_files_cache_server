@@ -1,3 +1,5 @@
+import msgpack
+
 from app.services.cache_updater import (
     check_books,
     cache_file_by_book_id,
@@ -28,5 +30,7 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
     max_jobs = 2
-    max_tries = 3
+    max_tries = 1
     job_timeout = 10 * 60
+    job_serializer = msgpack.packb
+    job_deserializer = lambda b: msgpack.unpackb(b, raw=False)  # noqa: E731
