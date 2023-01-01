@@ -72,7 +72,9 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
         )
 
 
-async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
+async def cache_file(
+    book: Book, file_type: str, by_request: bool = True
+) -> Optional[CachedFile]:
     if await CachedFile.objects.filter(
         object_id=book.id, object_type=file_type
     ).exists():
@@ -106,12 +108,15 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     if upload_data is None:
         return None
 
-    return await CachedFile.objects.create(
+    cached_file = await CachedFile.objects.create(
         object_id=book.id,
         object_type=file_type,
         message_id=upload_data.data["message_id"],
         chat_id=upload_data.data["chat_id"],
     )
+
+    if by_request:
+        return cached_file
 
 
 async def cache_file_by_book_id(
@@ -138,7 +143,7 @@ async def cache_file_by_book_id(
     try:
         try:
             async with lock:
-                return await cache_file(book, file_type)
+                return await cache_file(book, file_type, by_request)
         except LockError:
             raise Retry(defer=timedelta(minutes=15).seconds * random.random())
     except Retry as e:
