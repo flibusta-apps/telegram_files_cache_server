@@ -115,8 +115,7 @@ async def cache_file(
         chat_id=upload_data.data["chat_id"],
     )
 
-    if by_request:
-        return cached_file
+    return cached_file
 
 
 async def cache_file_by_book_id(
@@ -143,7 +142,10 @@ async def cache_file_by_book_id(
     try:
         try:
             async with lock:
-                return await cache_file(book, file_type, by_request)
+                result = await cache_file(book, file_type, by_request)
+
+                if by_request:
+                    return result
         except LockError:
             raise Retry(defer=timedelta(minutes=15).seconds * random.random())
     except Retry as e:
