@@ -72,9 +72,7 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
         )
 
 
-async def cache_file(
-    book: Book, file_type: str, by_request: bool = True
-) -> Optional[CachedFile]:
+async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     if await CachedFile.objects.filter(
         object_id=book.id, object_type=file_type
     ).exists():
@@ -108,14 +106,12 @@ async def cache_file(
     if upload_data is None:
         return None
 
-    cached_file = await CachedFile.objects.create(
+    return await CachedFile.objects.create(
         object_id=book.id,
         object_type=file_type,
         message_id=upload_data.data["message_id"],
         chat_id=upload_data.data["chat_id"],
     )
-
-    return cached_file
 
 
 async def cache_file_by_book_id(
