@@ -138,7 +138,7 @@ async def cache_file_by_book_id(
     try:
         try:
             async with lock:
-                result = await cache_file(book, file_type, by_request)
+                result = await cache_file(book, file_type)
 
                 if by_request:
                     return result
