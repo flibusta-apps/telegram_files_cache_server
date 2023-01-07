@@ -1,12 +1,10 @@
 import asyncio
 import base64
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.responses import StreamingResponse
-
-from starlette.background import BackgroundTask
-
 from arq.connections import ArqRedis
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
@@ -16,7 +14,6 @@ from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
 from app.services.library_client import get_book
-
 
 router = APIRouter(
     prefix="/api/v1", tags=["files"], dependencies=[Depends(check_token)]

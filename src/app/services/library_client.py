@@ -1,11 +1,10 @@
 from datetime import date
-from typing import Generic, TypeVar, Optional
+from typing import Generic, Optional, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
 from core.config import env_config
-
 
 T = TypeVar("T")
 

@@ -1,13 +1,12 @@
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
-
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.views import router, healthcheck_router
+import core.sentry  # noqa: F401
+from app.views import healthcheck_router, router
 from core.arq_pool import get_arq_pool
 from core.db import database
 from core.redis_client import get_client
-import core.sentry  # noqa: F401
 
 
 def start_app() -> FastAPI:

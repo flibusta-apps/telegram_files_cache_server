@@ -1,4 +1,4 @@
-from fastapi import Security, HTTPException, status
+from fastapi import HTTPException, Security, status
 
 from core.auth import default_security
 from core.config import env_config

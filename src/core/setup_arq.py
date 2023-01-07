@@ -1,14 +1,14 @@
 import msgpack
 
+import core.sentry  # noqa: F401
 from app.services.cache_updater import (
-    check_books,
     cache_file_by_book_id,
+    check_books,
     check_books_page,
 )
-from core.arq_pool import get_redis_settings, get_arq_pool
+from core.arq_pool import get_arq_pool, get_redis_settings
 from core.db import database
 from core.redis_client import get_client
-import core.sentry  # noqa: F401
 
 
 async def startup(ctx):

@@ -1,15 +1,14 @@
 import collections
-from datetime import timedelta
 import logging
 import random
+from datetime import timedelta
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
-from fastapi import UploadFile
-
+import httpx
 from arq.connections import ArqRedis
 from arq.worker import Retry
-import httpx
+from fastapi import UploadFile
 from redis import asyncio as aioredis
 from redis.exceptions import LockError
 
@@ -17,8 +16,7 @@ from app.models import CachedFile
 from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_client import upload_file
-from app.services.library_client import get_books, get_book, Book
-
+from app.services.library_client import Book, get_book, get_books
 
 logger = logging.getLogger("telegram_channel_files_manager")
 
@@ -61,7 +59,7 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
     try:
         books_page = await get_books(1, PAGE_SIZE)
     except httpx.ConnectError:
-        raise Retry(defer=15)
+        raise Retry(defer=15)  # noqa: B904
 
     for i, page_number in enumerate(range(books_page.total_pages, 0, -1)):
         await arq_pool.enqueue_job(
@@ -143,7 +141,9 @@ async def cache_file_by_book_id(
                 if by_request:
                     return result
         except LockError:
-            raise Retry(defer=timedelta(minutes=15).seconds * random.random())
+            raise Retry(  # noqa: B904
+                defer=timedelta(minutes=15).seconds * random.random()
+            )
     except Retry as e:
         if by_request:
             return None
