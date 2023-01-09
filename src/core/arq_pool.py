@@ -1,5 +1,5 @@
-import msgpack
 from arq.connections import ArqRedis, RedisSettings, create_pool
+import msgpack
 
 from core.config import env_config
 

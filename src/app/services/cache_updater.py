@@ -1,14 +1,14 @@
 import collections
+from datetime import timedelta
 import logging
 import random
-from datetime import timedelta
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
-import httpx
 from arq.connections import ArqRedis
 from arq.worker import Retry
 from fastapi import UploadFile
+import httpx
 from redis import asyncio as aioredis
 from redis.exceptions import LockError
 
