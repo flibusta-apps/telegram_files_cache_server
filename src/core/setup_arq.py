@@ -29,8 +29,9 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = get_redis_settings()
-    max_jobs = 2
+    max_jobs = 1
     max_tries = 1
     job_timeout = 10 * 60
     job_serializer = msgpack.packb
     job_deserializer = lambda b: msgpack.unpackb(b, raw=False)  # noqa: E731
+    expires_extra_ms = 7 * 24 * 60 * 1000

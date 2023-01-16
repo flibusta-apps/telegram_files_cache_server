@@ -61,11 +61,10 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
     except httpx.ConnectError:
         raise Retry(defer=15)  # noqa: B904
 
-    for i, page_number in enumerate(range(books_page.total_pages, 0, -1)):
+    for page_number in range(books_page.total_pages, 0, -1):
         await arq_pool.enqueue_job(
             "check_books_page",
             page_number,
-            _defer_by=2 * i,
             _job_id=f"check_books_page_{page_number}",
         )
 
