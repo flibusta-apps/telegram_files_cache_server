@@ -47,4 +47,4 @@ async def get_filename(book_id: int, file_type: str) -> Optional[str]:
         if response.status_code != 200:
             return None
 
-        return response.text
+        return response.text.encode("ascii", "ignore").decode("ascii")
