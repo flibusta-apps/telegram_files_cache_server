@@ -1,5 +1,5 @@
 import asyncio
-import base64
+from base64 import b64encode
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -51,7 +51,7 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     if not cached_file:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
-    cache_data = cached_file.data
+    cache_data: dict = cached_file.data  # type: ignore
 
     data, filename, book = await asyncio.gather(
         download_file_from_cache(cache_data["chat_id"], cache_data["message_id"]),
@@ -76,14 +76,16 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
         await client.aclose()
 
     assert book
+    assert filename
+
+    filename_ascii = filename.encode("ascii", "ignore").decode("ascii")
 
     return StreamingResponse(
         response.aiter_bytes(),
         headers={
-            "Content-Disposition": f"attachment; filename={filename}",
-            "X-Caption-B64": base64.b64encode(get_caption(book).encode("utf-8")).decode(
-                "latin-1"
-            ),
+            "Content-Disposition": f"attachment; filename={filename_ascii}",
+            "X-Caption-B64": b64encode(get_caption(book).encode("utf-8")).decode(),
+            "X-Filename-B64": b64encode(filename.encode("utf-8")).decode(),
         },
         background=BackgroundTask(close),
     )

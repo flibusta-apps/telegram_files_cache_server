@@ -1,3 +1,4 @@
+from base64 import b64decode
 from typing import Optional
 
 import httpx
@@ -28,8 +29,7 @@ async def download(
         await client.aclose()
         return None
 
-    content_disposition = response.headers["Content-Disposition"]
-    name = content_disposition.replace("attachment; filename=", "")
+    name = b64decode(response.headers["x-filename-b64"]).decode()
 
     return response, client, name
 
@@ -47,4 +47,4 @@ async def get_filename(book_id: int, file_type: str) -> Optional[str]:
         if response.status_code != 200:
             return None
 
-        return response.text.encode("ascii", "ignore").decode("ascii")
+        return response.text
