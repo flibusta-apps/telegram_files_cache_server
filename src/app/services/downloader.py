@@ -2,6 +2,7 @@ from base64 import b64decode
 from typing import Optional
 
 import httpx
+from sentry_sdk import capture_exception
 
 from core.config import env_config
 
@@ -37,14 +38,18 @@ async def download(
 async def get_filename(book_id: int, file_type: str) -> Optional[str]:
     headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{env_config.DOWNLOADER_URL}/filename/{book_id}/{file_type}",
-            headers=headers,
-            timeout=5 * 60,
-        )
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{env_config.DOWNLOADER_URL}/filename/{book_id}/{file_type}",
+                headers=headers,
+                timeout=5 * 60,
+            )
 
-        if response.status_code != 200:
-            return None
+            if response.status_code != 200:
+                return None
 
-        return response.text
+            return response.text
+    except httpx.HTTPError as e:
+        capture_exception(e)
+        return None

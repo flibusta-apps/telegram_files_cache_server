@@ -1,4 +1,3 @@
-import asyncio
 from base64 import b64encode
 
 from arq.connections import ArqRedis
@@ -14,6 +13,7 @@ from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
 from app.services.library_client import get_book
+from app.utils import get_cached_file_or_cache
 
 router = APIRouter(
     prefix="/api/v1", tags=["files"], dependencies=[Depends(check_token)]
@@ -39,34 +39,29 @@ async def get_cached_file(request: Request, object_id: int, object_type: str):
 
 @router.get("/download/{object_id}/{object_type}")
 async def download_cached_file(request: Request, object_id: int, object_type: str):
-    cached_file = await CachedFileDB.objects.get_or_none(
-        object_id=object_id, object_type=object_type
-    )
-
-    if not cached_file:
-        cached_file = await cache_file_by_book_id(
-            {"redis": request.app.state.redis_client}, object_id, object_type
-        )
-
-    if not cached_file:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
+    cached_file = await get_cached_file_or_cache(request, object_id, object_type)
     cache_data: dict = cached_file.data  # type: ignore
 
-    data, filename, book = await asyncio.gather(
-        download_file_from_cache(cache_data["chat_id"], cache_data["message_id"]),
-        get_filename(object_id, object_type),
-        get_book(object_id),
+    data = await download_file_from_cache(
+        cache_data["chat_id"], cache_data["message_id"]
     )
-
     if data is None:
         await CachedFileDB.objects.filter(id=cached_file.id).delete()
 
-        arq_pool: ArqRedis = request.app.state.arq_pool
-        await arq_pool.enqueue_job(
-            "cache_file_by_book_id", object_id, object_type, by_request=False
+        cached_file = await get_cached_file_or_cache(request, object_id, object_type)
+        cache_data: dict = cached_file.data  # type: ignore
+
+        data = await download_file_from_cache(
+            cache_data["chat_id"], cache_data["message_id"]
         )
 
+    if data is None:
+        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
+
+    if (filename := await get_filename(object_id, object_type)) is None:
+        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
+
+    if (book := await get_book(object_id)) is None:
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     response, client = data
@@ -74,9 +69,6 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     async def close():
         await response.aclose()
         await client.aclose()
-
-    assert book
-    assert filename
 
     filename_ascii = filename.encode("ascii", "ignore").decode("ascii")
 
