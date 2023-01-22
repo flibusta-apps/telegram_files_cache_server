@@ -18,7 +18,7 @@ def get_author_string(author: BookAuthor) -> str:
 
 def get_caption(book: Book) -> str:
     caption_title = f"📖 {book.title}"
-    caption_title_length = len(caption_title)
+    caption_title_length = len(caption_title) + 2
 
     caption_authors_parts = []
     authors_caption_length = 0
