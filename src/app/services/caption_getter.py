@@ -18,7 +18,7 @@ def get_author_string(author: BookAuthor) -> str:
 
 def get_caption(book: Book) -> str:
     caption_title = f"📖 {book.title}"
-    caption_title_length = len(caption_title) + 2
+    caption_title_length = len(caption_title) + 3
 
     caption_authors_parts = []
     authors_caption_length = 0
@@ -26,10 +26,10 @@ def get_caption(book: Book) -> str:
         author_caption = f"👤 {get_author_string(author)}"
 
         if (
-            caption_title_length + authors_caption_length + len(author_caption) + 1
+            caption_title_length + authors_caption_length + len(author_caption) + 3
         ) <= 1024:
             caption_authors_parts.append(author_caption)
-            authors_caption_length += len(author_caption) + 1
+            authors_caption_length += len(author_caption) + 3
         else:
             break
 
