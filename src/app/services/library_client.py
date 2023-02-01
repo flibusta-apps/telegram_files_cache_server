@@ -79,7 +79,7 @@ async def get_books(page: int, page_size: int) -> Page[Book]:
         response = await client.get(
             (
                 f"{env_config.LIBRARY_URL}/api/v1/books/"
-                f"?is_deleted=false&id_gte={id_gte}&id_lte={id_lte}"
+                f"?is_deleted=false&id_gte={id_gte}&id_lte={id_lte}&no_cache=true"
             ),
             headers=AUTH_HEADERS,
         )
