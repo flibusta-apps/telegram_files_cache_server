@@ -18,6 +18,11 @@ class Page(BaseModel, Generic[T]):
     total_pages: int
 
 
+class BaseBookInfo:
+    id: int
+    available_types: list[str]
+
+
 class BookAuthor(BaseModel):
     id: int
     first_name: str
@@ -71,14 +76,14 @@ async def get_book(
         return await get_book(book_id, retry=retry - 1, last_exp=e)
 
 
-async def get_books(page: int, page_size: int) -> Page[Book]:
+async def get_books(page: int, page_size: int) -> Page[BaseBookInfo]:
     id_gte = page * page_size
     id_lte = (page + 1) * page_size - 1
 
     async with httpx.AsyncClient(timeout=5 * 60) as client:
         response = await client.get(
             (
-                f"{env_config.LIBRARY_URL}/api/v1/books/"
+                f"{env_config.LIBRARY_URL}/api/v1/books/base/"
                 f"?is_deleted=false&id_gte={id_gte}&id_lte={id_lte}&no_cache=true"
             ),
             headers=AUTH_HEADERS,
