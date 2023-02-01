@@ -72,8 +72,8 @@ async def get_book(
 
 
 async def get_books(page: int, page_size: int) -> Page[Book]:
-    id_lte = page * page_size
-    id_gte = (page + 1) * page_size - 1
+    id_gte = page * page_size
+    id_lte = (page + 1) * page_size - 1
 
     async with httpx.AsyncClient(timeout=5 * 60) as client:
         response = await client.get(
