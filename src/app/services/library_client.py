@@ -18,7 +18,7 @@ class Page(BaseModel, Generic[T]):
     total_pages: int
 
 
-class BaseBookInfo:
+class BaseBookInfo(BaseModel):
     id: int
     available_types: list[str]
 
@@ -91,8 +91,8 @@ async def get_books(page: int, page_size: int) -> Page[BaseBookInfo]:
 
         data = response.json()
 
-        page_data = Page[Book].parse_obj(data)
-        page_data.items = [Book.parse_obj(item) for item in page_data.items]
+        page_data = Page[BaseBookInfo].parse_obj(data)
+        page_data.items = [BaseBookInfo.parse_obj(item) for item in page_data.items]
 
         return page_data
 
