@@ -72,11 +72,14 @@ async def get_book(
 
 
 async def get_books(page: int, page_size: int) -> Page[Book]:
+    id_lte = page * page_size
+    id_gte = (page + 1) * page_size - 1
+
     async with httpx.AsyncClient(timeout=5 * 60) as client:
         response = await client.get(
             (
                 f"{env_config.LIBRARY_URL}/api/v1/books/"
-                f"?page={page}&size={page_size}&is_deleted=false"
+                f"?is_deleted=false&id_gte={id_gte}&id_lte={id_lte}"
             ),
             headers=AUTH_HEADERS,
         )
@@ -87,3 +90,12 @@ async def get_books(page: int, page_size: int) -> Page[Book]:
         page_data.items = [Book.parse_obj(item) for item in page_data.items]
 
         return page_data
+
+
+async def get_last_book_id() -> int:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{env_config.LIBRARY_URL}/api/v1/books/last", headers=AUTH_HEADERS
+        )
+
+        return int(response.text)

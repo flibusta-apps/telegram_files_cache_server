@@ -16,7 +16,7 @@ from app.models import CachedFile
 from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_client import upload_file
-from app.services.library_client import Book, get_book, get_books
+from app.services.library_client import Book, get_book, get_books, get_last_book_id
 
 logger = logging.getLogger("telegram_channel_files_manager")
 
@@ -56,12 +56,10 @@ async def check_books_page(ctx, page_number: int) -> None:
 
 async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
     arq_pool: ArqRedis = ctx["arc_pool"]
-    try:
-        books_page = await get_books(1, PAGE_SIZE)
-    except httpx.ConnectError:
-        raise Retry(defer=15)  # noqa: B904
 
-    for page_number in range(books_page.total_pages, 0, -1):
+    last_book_id = await get_last_book_id()
+
+    for page_number in range(0, last_book_id // 100 + 1):
         await arq_pool.enqueue_job(
             "check_books_page",
             page_number,
