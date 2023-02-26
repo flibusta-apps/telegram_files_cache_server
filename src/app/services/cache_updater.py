@@ -1,5 +1,6 @@
 import collections
 from datetime import timedelta
+from io import BytesIO
 import logging
 import random
 from tempfile import SpooledTemporaryFile
@@ -86,7 +87,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     response, client, filename = data
     caption = get_caption(book)
 
-    temp_file = UploadFile(filename)
+    temp_file = UploadFile(BytesIO(), filename=filename)
     async for chunk in response.aiter_bytes(2048):
         await temp_file.write(chunk)
     await temp_file.seek(0)
