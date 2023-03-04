@@ -64,7 +64,6 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
         await arq_pool.enqueue_job(
             "check_books_page",
             page_number,
-            _job_id=f"check_books_page_{page_number}",
         )
 
 
