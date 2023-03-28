@@ -30,8 +30,8 @@ class FileTypeNotAllowed(Exception):
         super().__init__(message)
 
 
-async def check_books_page(ctx, page_number: int) -> None:
-    arq_pool: ArqRedis = ctx["arc_pool"]
+async def check_books_page(ctx: dict, page_number: int) -> None:
+    arq_pool: ArqRedis = ctx["arq_pool"]
 
     page = await get_books(page_number, PAGE_SIZE)
 
@@ -55,8 +55,8 @@ async def check_books_page(ctx, page_number: int) -> None:
                 )
 
 
-async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
-    arq_pool: ArqRedis = ctx["arc_pool"]
+async def check_books(ctx: dict, *args, **kwargs) -> bool:  # NOSONAR
+    arq_pool: ArqRedis = ctx["arq_pool"]
 
     last_book_id = await get_last_book_id()
 
@@ -65,6 +65,8 @@ async def check_books(ctx: dict, *args, **kwargs) -> None:  # NOSONAR
             "check_books_page",
             page_number,
         )
+
+    return True
 
 
 async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
@@ -128,7 +130,9 @@ async def cache_file_by_book_id(
     if file_type not in book.available_types:
         return None
 
-    lock = r_client.lock(f"{book_id}_{file_type}", blocking_timeout=5)
+    lock = r_client.lock(
+        f"{book_id}_{file_type}", blocking_timeout=5, thread_local=False
+    )
 
     try:
         try:

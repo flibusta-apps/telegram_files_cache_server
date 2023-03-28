@@ -119,6 +119,7 @@ async def create_or_update_cached_file(data: CreateCachedFile):
 @router.post("/update_cache")
 async def update_cache(request: Request):
     arq_pool: ArqRedis = request.app.state.arq_pool
+
     await arq_pool.enqueue_job("check_books")
 
     return "Ok!"
