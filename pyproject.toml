@@ -6,7 +6,7 @@ authors = ["Kurbanov Bulat <kurbanovbul@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = "^0.92.0"
+fastapi = "^0.95.0"
 httpx = "^0.23.3"
 alembic = "^1.10.2"
 uvicorn = {extras = ["standard"], version = "^0.21.1"}
