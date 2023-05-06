@@ -6,9 +6,10 @@ import random
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
+from fastapi import UploadFile
+
 from arq.connections import ArqRedis
 from arq.worker import Retry
-from fastapi import UploadFile
 import httpx
 from redis import asyncio as aioredis
 from redis.exceptions import LockError
@@ -18,6 +19,7 @@ from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_client import upload_file
 from app.services.library_client import Book, get_book, get_books, get_last_book_id
+
 
 logger = logging.getLogger("telegram_channel_files_manager")
 

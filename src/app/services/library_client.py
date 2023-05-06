@@ -7,6 +7,7 @@ from sentry_sdk import capture_exception
 
 from core.config import env_config
 
+
 T = TypeVar("T")
 
 

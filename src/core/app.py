@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
+
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.views import healthcheck_router, router

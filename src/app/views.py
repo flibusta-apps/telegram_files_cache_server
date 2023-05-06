@@ -1,9 +1,11 @@
 from base64 import b64encode
 
-from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
+
 from starlette.background import BackgroundTask
+
+from arq.connections import ArqRedis
 
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
@@ -14,6 +16,7 @@ from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
 from app.services.library_client import get_book
 from app.utils import get_cached_file_or_cache
+
 
 router = APIRouter(
     prefix="/api/v1", tags=["files"], dependencies=[Depends(check_token)]
