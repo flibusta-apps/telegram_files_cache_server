@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from taskiq import SimpleRetryMiddleware
@@ -5,10 +6,13 @@ from taskiq.message import TaskiqMessage
 from taskiq.result import TaskiqResult
 
 
+logger = logging.Logger("taskiq_middleware", logging.INFO)
+
+
 class FastAPIREtryMiddleware(SimpleRetryMiddleware):
     @staticmethod
     def _is_need_to_remove(to_remove: list[Any], value: Any) -> bool:
-        print(type(value), to_remove)
+        logger.info(f"{type(value)}, {to_remove}")
         return type(value) in to_remove
 
     async def on_error(
