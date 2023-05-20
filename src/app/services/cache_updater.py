@@ -1,6 +1,5 @@
 import collections
 from io import BytesIO
-import logging
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
@@ -17,9 +16,6 @@ from app.services.downloader import download
 from app.services.files_client import upload_file
 from app.services.library_client import Book, get_book, get_books, get_last_book_id
 from core.taskiq_worker import broker
-
-
-logger = logging.getLogger("telegram_channel_files_manager")
 
 
 PAGE_SIZE = 100
