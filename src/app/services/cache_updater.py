@@ -107,7 +107,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     )
 
 
-@broker.task
+@broker.task(retry_on_error=True)
 async def cache_file_by_book_id(
     book_id: int,
     file_type: str,
