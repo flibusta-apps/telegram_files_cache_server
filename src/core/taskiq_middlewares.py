@@ -18,6 +18,8 @@ class FastAPIREtryMiddleware(SimpleRetryMiddleware):
     async def on_error(
         self, message: TaskiqMessage, result: TaskiqResult[Any], exception: Exception
     ) -> None:
+        logger.info(f"{self.broker.custom_dependency_context}")
+
         types_to_remove = list(self.broker.custom_dependency_context.keys())
 
         message.args = [
