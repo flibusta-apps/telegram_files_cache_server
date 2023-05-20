@@ -8,6 +8,7 @@ from taskiq.result import TaskiqResult
 class FastAPIREtryMiddleware(SimpleRetryMiddleware):
     @staticmethod
     def _is_need_to_remove(to_remove: list[Any], value: Any) -> bool:
+        print(type(value), to_remove)
         return type(value) in to_remove
 
     async def on_error(
