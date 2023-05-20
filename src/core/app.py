@@ -14,7 +14,6 @@ from core.taskiq_worker import broker
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    database = app.state.database
     if not database.is_connected:
         await database.connect()
 
@@ -35,7 +34,6 @@ async def lifespan(app: FastAPI):
 def start_app() -> FastAPI:
     app = FastAPI(default_response_class=ORJSONResponse, lifespan=lifespan)
 
-    app.state.database = database
     app.state.redis_pool = ConnectionPool.from_url(REDIS_URL)
 
     app.include_router(router)
