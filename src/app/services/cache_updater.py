@@ -1,24 +1,22 @@
 import collections
-from datetime import timedelta
 from io import BytesIO
 import logging
-import random
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
 
 from fastapi import UploadFile
 
-from arq.connections import ArqRedis
-from arq.worker import Retry
 import httpx
-from redis import asyncio as aioredis
-from redis.exceptions import LockError
+from redis.asyncio import ConnectionPool, Redis
+from taskiq import TaskiqDepends
 
+from app.depends import get_redis_pool
 from app.models import CachedFile
 from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_client import upload_file
 from app.services.library_client import Book, get_book, get_books, get_last_book_id
+from core.taskiq_worker import broker
 
 
 logger = logging.getLogger("telegram_channel_files_manager")
@@ -27,14 +25,17 @@ logger = logging.getLogger("telegram_channel_files_manager")
 PAGE_SIZE = 100
 
 
+class Retry(Exception):
+    pass
+
+
 class FileTypeNotAllowed(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
 
 
-async def check_books_page(ctx: dict, page_number: int) -> None:
-    arq_pool: ArqRedis = ctx["arq_pool"]
-
+@broker.task
+async def check_books_page(page_number: int) -> bool:
     page = await get_books(page_number, PAGE_SIZE)
 
     object_ids = [book.id for book in page.items]
@@ -48,25 +49,21 @@ async def check_books_page(ctx: dict, page_number: int) -> None:
     for book in page.items:
         for file_type in book.available_types:
             if file_type not in cached_files_map[book.id]:
-                await arq_pool.enqueue_job(
-                    "cache_file_by_book_id",
-                    book.id,
-                    file_type,
+                await cache_file_by_book_id.kiq(
+                    book_id=book.id,
+                    file_type=file_type,
                     by_request=False,
-                    _job_id=f"cache_file_by_book_id_{book.id}_{file_type}",
                 )
 
+    return True
 
-async def check_books(ctx: dict, *args, **kwargs) -> bool:  # NOSONAR
-    arq_pool: ArqRedis = ctx["arq_pool"]
 
+@broker.task
+async def check_books(*args, **kwargs) -> bool:  # NOSONAR
     last_book_id = await get_last_book_id()
 
     for page_number in range(0, last_book_id // 100 + 1):
-        await arq_pool.enqueue_job(
-            "check_books_page",
-            page_number,
-        )
+        await check_books_page.kiq(page_number)
 
     return True
 
@@ -76,16 +73,13 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
         object_id=book.id, object_type=file_type
     ).exists():
         return
-
-    retry_exc = Retry(defer=timedelta(minutes=15).seconds * random.random())
-
     try:
         data = await download(book.source.id, book.remote_id, file_type)
     except httpx.HTTPError:
-        raise retry_exc
+        data = None
 
     if data is None:
-        raise retry_exc
+        raise Retry
 
     response, client, filename = data
     caption = get_caption(book)
@@ -113,41 +107,31 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     )
 
 
+@broker.task
 async def cache_file_by_book_id(
-    ctx: dict,  # NOSONAR
     book_id: int,
     file_type: str,
     by_request: bool = True,
+    redis_pool: ConnectionPool = TaskiqDepends(get_redis_pool),
 ) -> Optional[CachedFile]:
-    r_client: aioredis.Redis = ctx["redis"]
-
-    get_book_retry = 3 if by_request else 1
-    book = await get_book(book_id, get_book_retry)
+    book = await get_book(book_id, 3)
 
     if book is None:
         if by_request:
             return None
-        raise Retry(defer=15)
+        raise Retry
 
     if file_type not in book.available_types:
         return None
 
-    lock = r_client.lock(
-        f"{book_id}_{file_type}", blocking_timeout=5, thread_local=False
-    )
+    async with Redis(connection_pool=redis_pool) as redis_client:
+        lock = redis_client.lock(
+            f"{book_id}_{file_type}", blocking_timeout=5, thread_local=False
+        )
 
-    try:
-        try:
-            async with lock:
-                result = await cache_file(book, file_type)
+        async with lock:
+            result = await cache_file(book, file_type)
 
-                if by_request:
-                    return result
-        except LockError:
-            raise Retry(  # noqa: B904
-                defer=timedelta(minutes=15).seconds * random.random()
-            )
-    except Retry as e:
-        if by_request:
-            return None
-        raise e
+    if by_request:
+        return result
+    return None

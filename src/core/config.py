@@ -26,4 +26,8 @@ class EnvConfig(BaseSettings):
     SENTRY_DSN: str
 
 
-env_config = EnvConfig()
+env_config = EnvConfig()  # type: ignore
+
+REDIS_URL = (
+    f"redis://{env_config.REDIS_HOST}:{env_config.REDIS_PORT}/{env_config.REDIS_DB}"
+)
