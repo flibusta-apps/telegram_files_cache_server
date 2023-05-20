@@ -1,5 +1,3 @@
-from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 
@@ -12,32 +10,31 @@ from core.db import database
 from core.taskiq_worker import broker
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if not database.is_connected:
-        await database.connect()
-
-    if not broker.is_worker_process:
-        await broker.startup()
-
-    yield
-
-    if database.is_connected:
-        await database.disconnect()
-
-    if not broker.is_worker_process:
-        await broker.shutdown()
-
-    await app.state.redis_pool.disconnect()
-
-
 def start_app() -> FastAPI:
-    app = FastAPI(default_response_class=ORJSONResponse, lifespan=lifespan)
+    app = FastAPI(default_response_class=ORJSONResponse)
 
     app.state.redis_pool = ConnectionPool.from_url(REDIS_URL)
 
     app.include_router(router)
     app.include_router(healthcheck_router)
+
+    @app.on_event("startup")
+    async def app_startup():
+        if not database.is_connected:
+            await database.connect()
+
+        if not broker.is_worker_process:
+            await broker.startup()
+
+    @app.on_event("shutdown")
+    async def app_shutdown():
+        if database.is_connected:
+            await database.disconnect()
+
+        if not broker.is_worker_process:
+            await broker.shutdown()
+
+        await app.state.redis_pool.disconnect()
 
     Instrumentator(
         should_ignore_untemplated=True,
