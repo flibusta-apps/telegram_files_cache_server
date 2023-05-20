@@ -5,12 +5,10 @@ from fastapi.responses import StreamingResponse
 
 from starlette.background import BackgroundTask
 
-from arq.connections import ArqRedis
-
 from app.depends import check_token
 from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
-from app.services.cache_updater import cache_file_by_book_id
+from app.services.cache_updater import cache_file_by_book_id, check_books
 from app.services.caption_getter import get_caption
 from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
@@ -31,7 +29,7 @@ async def get_cached_file(request: Request, object_id: int, object_type: str):
 
     if not cached_file:
         cached_file = await cache_file_by_book_id(
-            {"redis": request.app.state.redis_client}, object_id, object_type
+            object_id, object_type, by_request=True
         )
 
     if not cached_file:
@@ -121,9 +119,7 @@ async def create_or_update_cached_file(data: CreateCachedFile):
 
 @router.post("/update_cache")
 async def update_cache(request: Request):
-    arq_pool: ArqRedis = request.app.state.arq_pool
-
-    await arq_pool.enqueue_job("check_books")
+    await check_books.kiq()
 
     return "Ok!"
 
