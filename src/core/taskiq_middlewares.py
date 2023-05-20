@@ -6,7 +6,7 @@ from taskiq.message import TaskiqMessage
 from taskiq.result import TaskiqResult
 
 
-logger = logging.Logger("taskiq_middleware", logging.INFO)
+logger = logging.getLogger("taskiq_middleware")
 
 
 class FastAPIREtryMiddleware(SimpleRetryMiddleware):
