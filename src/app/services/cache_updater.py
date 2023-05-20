@@ -125,13 +125,10 @@ async def cache_file_by_book_id(
             f"{book_id}_{file_type}", blocking_timeout=5, thread_local=False
         )
 
-        try:
-            async with lock:
-                result = await cache_file(book, file_type)
-        except Exception as e:
-            if by_request:
-                return None
-            raise Retry from e
+        if await lock.locked() and not by_request:
+            raise Retry
+
+        result = await cache_file(book, file_type)
 
     if by_request:
         return result
