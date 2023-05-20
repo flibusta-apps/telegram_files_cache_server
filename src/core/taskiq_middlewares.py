@@ -14,6 +14,8 @@ class FastAPIREtryMiddleware(SimpleRetryMiddleware):
     ) -> dict[str, Any]:
         sig = signature(task_func)
 
+        keys_to_remove = []
+
         for key in message_kwargs.keys():
             param = sig.parameters.get(key, None)
 
@@ -21,7 +23,10 @@ class FastAPIREtryMiddleware(SimpleRetryMiddleware):
                 continue
 
             if isinstance(param.default, Dependency):
-                message_kwargs.pop(key)
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            message_kwargs.pop(key)
 
         return message_kwargs
 
