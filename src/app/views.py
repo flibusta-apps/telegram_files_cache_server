@@ -40,7 +40,9 @@ async def get_cached_file(request: Request, object_id: int, object_type: str):
 
 @router.get("/download/{object_id}/{object_type}")
 async def download_cached_file(request: Request, object_id: int, object_type: str):
-    cached_file = await get_cached_file_or_cache(request, object_id, object_type)
+    cached_file = await get_cached_file_or_cache(
+        object_id, object_type, request.app.state.redis_pool
+    )
     cache_data: dict = cached_file.data  # type: ignore
 
     data = await download_file_from_cache(
@@ -49,7 +51,9 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     if data is None:
         await CachedFileDB.objects.filter(id=cached_file.id).delete()
 
-        cached_file = await get_cached_file_or_cache(request, object_id, object_type)
+        cached_file = await get_cached_file_or_cache(
+            object_id, object_type, request.app.state.redis_pool
+        )
         cache_data: dict = cached_file.data  # type: ignore
 
         data = await download_file_from_cache(
