@@ -1,5 +1,6 @@
 from datetime import date
 from typing import Generic, Optional, TypeVar
+from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel
@@ -77,16 +78,29 @@ async def get_book(
         return await get_book(book_id, retry=retry - 1, last_exp=e)
 
 
-async def get_books(page: int, page_size: int) -> Page[BaseBookInfo]:
-    id_gte = page * page_size
-    id_lte = (page + 1) * page_size - 1
+async def get_books(
+    page: int,
+    page_size: int,
+    uploaded_gte: date | None = None,
+    uploaded_lte: date | None = None,
+) -> Page[BaseBookInfo]:
+    params: dict[str, str] = {
+        "page": str(page),
+        "page_size": str(page_size),
+        "is_deleted": "false",
+    }
+
+    if uploaded_gte:
+        params["uploaded_gte"] = uploaded_gte.isoformat()
+
+    if uploaded_lte:
+        params["uploaded_lte"] = uploaded_lte.isoformat()
+
+    params_string = urlencode(params)
 
     async with httpx.AsyncClient(timeout=5 * 60) as client:
         response = await client.get(
-            (
-                f"{env_config.LIBRARY_URL}/api/v1/books/base/"
-                f"?is_deleted=false&id_gte={id_gte}&id_lte={id_lte}&no_cache=true"
-            ),
+            f"{env_config.LIBRARY_URL}/api/v1/books/base/?{params_string}",
             headers=AUTH_HEADERS,
         )
 

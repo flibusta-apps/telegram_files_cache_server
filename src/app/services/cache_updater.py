@@ -1,4 +1,5 @@
 import collections
+from datetime import date, timedelta
 from io import BytesIO
 from tempfile import SpooledTemporaryFile
 from typing import Optional, cast
@@ -14,7 +15,7 @@ from app.models import CachedFile
 from app.services.caption_getter import get_caption
 from app.services.downloader import download
 from app.services.files_client import upload_file
-from app.services.library_client import Book, get_book, get_books, get_last_book_id
+from app.services.library_client import Book, get_book, get_books
 from core.taskiq_worker import broker
 
 
@@ -31,8 +32,12 @@ class FileTypeNotAllowed(Exception):
 
 
 @broker.task
-async def check_books_page(page_number: int) -> bool:
-    page = await get_books(page_number, PAGE_SIZE)
+async def check_books_page(
+    page_number: int, uploaded_gte: date, uploaded_lte: date
+) -> bool:
+    page = await get_books(
+        page_number, PAGE_SIZE, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
+    )
 
     object_ids = [book.id for book in page.items]
 
@@ -55,11 +60,18 @@ async def check_books_page(page_number: int) -> bool:
 
 
 @broker.task
-async def check_books(*args, **kwargs) -> bool:  # NOSONAR
-    last_book_id = await get_last_book_id()
+async def check_books(*args, **kwargs) -> bool:
+    uploaded_lte = date.today() + timedelta(days=1)
+    uploaded_gte = date.today() - timedelta(days=1)
 
-    for page_number in range(0, last_book_id // 100 + 1):
-        await check_books_page.kiq(page_number)
+    books_page = await get_books(
+        1, PAGE_SIZE, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
+    )
+
+    for page_number in range(1, books_page.total_pages + 1):
+        await check_books_page.kiq(
+            page_number, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
+        )
 
     return True
 
