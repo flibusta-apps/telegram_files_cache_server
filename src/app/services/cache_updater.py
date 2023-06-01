@@ -107,12 +107,22 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     if upload_data is None:
         return None
 
-    return await CachedFile.objects.create(
+    cached_file, created = await CachedFile.objects.get_or_create(
+        {
+            "message_id": upload_data.data["message_id"],
+            "chat_id": upload_data.data["chat_id"],
+        },
         object_id=book.id,
         object_type=file_type,
-        message_id=upload_data.data["message_id"],
-        chat_id=upload_data.data["chat_id"],
     )
+
+    if created:
+        return cached_file
+
+    cached_file.message_id = upload_data.data["message_id"]
+    cached_file.chat_id = upload_data.data["chat_id"]
+
+    return await cached_file.update(["message_id", "chat_id"])
 
 
 @broker.task(retry_on_error=True)
