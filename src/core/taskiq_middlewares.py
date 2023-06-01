@@ -7,7 +7,7 @@ from taskiq.result import TaskiqResult
 from taskiq_dependencies.dependency import Dependency
 
 
-class FastAPIREtryMiddleware(SimpleRetryMiddleware):
+class FastAPIRetryMiddleware(SimpleRetryMiddleware):
     @staticmethod
     def _remove_depends(
         task_func: Any, message_kwargs: dict[str, Any]
