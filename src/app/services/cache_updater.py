@@ -150,7 +150,12 @@ async def cache_file_by_book_id(
         if await lock.locked() and not by_request:
             raise Retry
 
-        result = await cache_file(book, file_type)
+        try:
+            result = await cache_file(book, file_type)
+        except Retry as e:
+            if by_request:
+                return None
+            raise e
 
     if by_request:
         return result
