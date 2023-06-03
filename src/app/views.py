@@ -1,11 +1,14 @@
 from base64 import b64encode
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from starlette.background import BackgroundTask
 
-from app.depends import check_token
+from redis.asyncio import ConnectionPool
+
+from app.depends import check_token, get_redis_pool
 from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
 from app.services.cache_updater import cache_file_by_book_id, check_books
@@ -22,14 +25,18 @@ router = APIRouter(
 
 
 @router.get("/{object_id}/{object_type}", response_model=CachedFile)
-async def get_cached_file(request: Request, object_id: int, object_type: str):
+async def get_cached_file(
+    redis_pool: Annotated[ConnectionPool, Depends(get_redis_pool)],
+    object_id: int,
+    object_type: str,
+):
     cached_file = await CachedFileDB.objects.get_or_none(
         object_id=object_id, object_type=object_type
     )
 
     if not cached_file:
         cached_file = await cache_file_by_book_id(
-            object_id, object_type, by_request=True
+            object_id, object_type, by_request=True, redis_pool=redis_pool
         )
 
     if not cached_file:
