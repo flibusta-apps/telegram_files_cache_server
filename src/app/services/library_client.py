@@ -15,9 +15,11 @@ T = TypeVar("T")
 class Page(BaseModel, Generic[T]):
     items: list[T]
     total: int
-    page: int
+
     size: int
-    total_pages: int
+
+    page: int
+    pages: int
 
 
 class BaseBookInfo(BaseModel):

@@ -68,7 +68,7 @@ async def check_books(*args, **kwargs) -> bool:
         1, PAGE_SIZE, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
     )
 
-    for page_number in range(1, books_page.total_pages + 1):
+    for page_number in range(1, books_page.pages + 1):
         await check_books_page.kiq(
             page_number, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
         )
