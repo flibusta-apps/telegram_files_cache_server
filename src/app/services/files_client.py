@@ -8,7 +8,7 @@ from core.config import env_config
 
 
 class Data(TypedDict):
-    chat_id: str | int
+    chat_id: int
     message_id: int
 
 
