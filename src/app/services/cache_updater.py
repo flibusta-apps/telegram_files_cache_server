@@ -32,10 +32,13 @@ class FileTypeNotAllowed(Exception):
 
 @broker.task
 async def check_books_page(
-    page_number: int, uploaded_gte: date, uploaded_lte: date
+    page_number: int, uploaded_gte: str, uploaded_lte: str
 ) -> bool:
     page = await get_books(
-        page_number, PAGE_SIZE, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
+        page_number,
+        PAGE_SIZE,
+        uploaded_gte=date.fromisoformat(uploaded_gte),
+        uploaded_lte=date.fromisoformat(uploaded_lte),
     )
 
     object_ids = [book.id for book in page.items]
@@ -69,7 +72,9 @@ async def check_books(*args, **kwargs) -> bool:
 
     for page_number in range(1, books_page.pages + 1):
         await check_books_page.kiq(
-            page_number, uploaded_gte=uploaded_gte, uploaded_lte=uploaded_lte
+            page_number,
+            uploaded_gte=uploaded_gte.isoformat(),
+            uploaded_lte=uploaded_lte.isoformat(),
         )
 
     return True
