@@ -1,27 +1,29 @@
-from datetime import datetime
-from tempfile import SpooledTemporaryFile
-from typing import Optional
+from typing import BinaryIO, Optional
 
 import httpx
 from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 from core.config import env_config
 
 
+class Data(TypedDict):
+    chat_id: str | int
+    message_id: int
+
+
 class UploadedFile(BaseModel):
-    id: int
     backend: str
-    data: dict
-    upload_time: datetime
+    data: Data
 
 
 async def upload_file(
-    content: SpooledTemporaryFile, filename: str, caption: str
+    content: BinaryIO, content_size: int, filename: str, caption: str
 ) -> Optional[UploadedFile]:
     headers = {"Authorization": env_config.FILES_SERVER_API_KEY}
 
     async with httpx.AsyncClient() as client:
-        form = {"caption": caption}
+        form = {"caption": caption, "file_size": content_size}
         files = {"file": (filename, content)}
 
         response = await client.post(

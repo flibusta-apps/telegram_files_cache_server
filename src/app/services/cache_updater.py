@@ -1,8 +1,7 @@
 import collections
 from datetime import date, timedelta
 from io import BytesIO
-from tempfile import SpooledTemporaryFile
-from typing import Optional, cast
+from typing import Optional
 
 from fastapi import UploadFile
 
@@ -81,6 +80,7 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
         object_id=book.id, object_type=file_type
     ).exists():
         return
+
     try:
         data = await download(book.source.id, book.remote_id, file_type)
     except httpx.HTTPError:
@@ -95,14 +95,14 @@ async def cache_file(book: Book, file_type: str) -> Optional[CachedFile]:
     temp_file = UploadFile(BytesIO(), filename=filename)
     async for chunk in response.aiter_bytes(2048):
         await temp_file.write(chunk)
+
+    file_size = temp_file.file.tell()
     await temp_file.seek(0)
 
     await response.aclose()
     await client.aclose()
 
-    upload_data = await upload_file(
-        cast(SpooledTemporaryFile, temp_file.file), filename, caption
-    )
+    upload_data = await upload_file(temp_file.file, file_size, filename, caption)
 
     if upload_data is None:
         return None
