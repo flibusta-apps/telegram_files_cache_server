@@ -35,7 +35,7 @@ async def download(
     return response, client, name
 
 
-async def get_filename(book_id: int, file_type: str) -> Optional[str]:
+async def get_filename(book_id: int, file_type: str) -> Optional[tuple[str, str]]:
     headers = {"Authorization": env_config.DOWNLOADER_API_KEY}
 
     try:
@@ -49,7 +49,9 @@ async def get_filename(book_id: int, file_type: str) -> Optional[str]:
             if response.status_code != 200:
                 return None
 
-            return response.text
+            data = response.json()
+
+            return data["filename"], data["filename_ascii"]
     except httpx.HTTPError as e:
         capture_exception(e)
         return None

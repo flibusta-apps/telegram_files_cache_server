@@ -70,7 +70,7 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     if data is None:
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
-    if (filename := await get_filename(object_id, object_type)) is None:
+    if (filename_data := await get_filename(object_id, object_type)) is None:
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     if (book := await get_book(object_id)) is None:
@@ -82,7 +82,7 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
         await response.aclose()
         await client.aclose()
 
-    filename_ascii = filename.encode("ascii", "ignore").decode("ascii")
+    filename, filename_ascii = filename_data
 
     return StreamingResponse(
         response.aiter_bytes(),
