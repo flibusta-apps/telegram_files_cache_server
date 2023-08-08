@@ -1,0 +1,40 @@
+[package]
+name = "telegram_files_cache_server"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+members = [
+    "prisma-cli"
+]
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+once_cell = "1.18.0"
+
+prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust", tag = "0.6.8", features = ["postgresql"] }
+serde = { version = "1.0.163", features = ["derive"] }
+serde_json = "1.0.104"
+reqwest = { version = "0.11.18", features = ["json", "stream", "multipart"] }
+
+tokio = { version = "1.28.2", features = ["full"] }
+tokio-util = { version = "0.7.8", features = ["compat"] }
+axum = { version = "0.6.18", features = ["json"] }
+axum-prometheus = "0.4.0"
+chrono = "0.4.26"
+sentry = "0.31.5"
+
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
+tower-http = { version = "0.4.3", features = ["trace"] }
+
+base64 = "0.21.2"
+
+grammers-client = "0.4.0"
+grammers-session = "0.4.0"
+
+futures = "0.3.28"
+futures-core = "0.3.28"
+async-stream = "0.3.5"

@@ -1,0 +1,24 @@
+generator client {
+  provider = "cargo prisma"
+  output   = "../src/prisma.rs"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CachedFile {
+  id          Int     @id @default(autoincrement())
+  object_id   Int
+  object_type String  @db.VarChar(8)
+  message_id  BigInt  @unique(map: "ix_cached_files_message_id")
+  chat_id     BigInt
+
+  @@unique([message_id, chat_id], map: "uc_cached_files_message_id_chat_id")
+  @@unique([object_id, object_type], map: "uc_cached_files_object_id_object_type")
+  @@index([object_id], map: "ix_cached_files_object_id")
+  @@index([object_type], map: "ix_cached_files_object_type")
+
+  @@map("cached_files")
+}
