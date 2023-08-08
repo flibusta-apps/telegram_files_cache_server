@@ -18,10 +18,6 @@ pub struct Config {
     pub files_api_key: String,
     pub files_url: String,
 
-    pub telegram_api_id: i32,
-    pub telegram_api_hash: String,
-    pub telegram_bot_tokens: Vec<String>,
-
     pub sentry_dsn: String
 }
 
@@ -50,10 +46,6 @@ impl Config {
 
             files_api_key: get_env("FILES_SERVER_API_KEY"),
             files_url: get_env("FILES_SERVER_URL"),
-
-            telegram_api_id: get_env("TELEGRAM_API_ID").parse().unwrap(),
-            telegram_api_hash: get_env("TELEGRAM_API_HASH"),
-            telegram_bot_tokens: serde_json::from_str(&get_env("TELEGRAM_BOT_TOKENS")).unwrap(),
 
             sentry_dsn: get_env("SENTRY_DSN")
         }
