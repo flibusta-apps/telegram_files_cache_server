@@ -12,7 +12,7 @@ alembic = "^1.11.2"
 uvicorn = {extras = ["standard"], version = "^0.23.2"}
 prometheus-fastapi-instrumentator = "^6.1.0"
 uvloop = "^0.17.0"
-orjson = "^3.9.2"
+orjson = "^3.9.4"
 sentry-sdk = "^1.29.2"
 ormar = {extras = ["postgresql"], version = "^0.12.2"}
 pydantic = "^1.10.4"
