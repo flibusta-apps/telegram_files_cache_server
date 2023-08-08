@@ -13,6 +13,7 @@ from app.models import CachedFile as CachedFileDB
 from app.serializers import CachedFile, CreateCachedFile
 from app.services.cache_updater import cache_file_by_book_id, check_books
 from app.services.caption_getter import get_caption
+from app.services.downloader import get_filename
 from app.services.files_client import download_file as download_file_from_cache
 from app.services.library_client import get_book
 from app.utils import get_cached_file_or_cache
@@ -69,17 +70,19 @@ async def download_cached_file(request: Request, object_id: int, object_type: st
     if data is None:
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
+    if (filename := await get_filename(object_id, object_type)) is None:
+        raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
+
     if (book := await get_book(object_id)) is None:
         raise HTTPException(status_code=status.HTTP_204_NO_CONTENT)
 
     response, client = data
 
-    filename = response.headers["x-filename-b64"]
-    filename_ascii = response.headers["x-filename-b64-ascii"]
-
     async def close():
         await response.aclose()
         await client.aclose()
+
+    filename_ascii = filename.encode("ascii", "ignore").decode("ascii")
 
     return StreamingResponse(
         response.aiter_bytes(),
