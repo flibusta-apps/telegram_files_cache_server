@@ -7,7 +7,7 @@ use tracing::log;
 
 use crate::{prisma::cached_file, views::Database};
 
-use self::{download_utils::DownloadResult, telegram_files::{download_from_telegram_files, UploadData, upload_to_telegram_files}, downloader::{get_filename, FilenameData, download_from_downloader}, book_library::get_book};
+use self::{download_utils::DownloadResult, telegram_files::{download_from_telegram_files, UploadData, upload_to_telegram_files}, downloader::{get_filename, FilenameData, download_from_downloader}, book_library::{get_book, types::BaseBook, get_books}};
 
 
 pub async fn get_cached_file_or_cache(
@@ -132,8 +132,75 @@ pub async fn download_from_cache(
     })
 }
 
+pub async fn get_books_for_update() -> Result<Vec<BaseBook>, Box<dyn std::error::Error + Send + Sync>> {
+    let mut result: Vec<BaseBook> = vec![];
+
+    let page_size = 50;
+
+    let uploaded_gte = "".to_string();
+    let uploaded_lte = "".to_string();
+
+    let first_page = match get_books(
+        1,
+        page_size,
+        uploaded_gte.clone(),
+        uploaded_lte.clone()
+    ).await {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    result.extend(first_page.items);
+
+    let mut current_page = 2;
+    let page_count = first_page.pages;
+
+    while current_page <= page_count {
+        let page = match get_books(current_page, page_size, uploaded_gte.clone(), uploaded_lte.clone()).await {
+            Ok(v) => v,
+            Err(err) => return Err(err),
+        };
+        result.extend(page.items);
+
+        current_page += 1;
+    };
+
+    Ok(result)
+}
+
+
 pub async fn start_update_cache(
-    _db: Database
+    db: Database
 ) {
-    // TODO
+    let books = match get_books_for_update().await {
+        Ok(v) => v,
+        Err(err) => {
+            log::error!("{:?}", err);
+            return;
+        },
+    };
+
+    for book in books {
+        for available_type in book.available_types {
+            let cached_file = match db
+                .cached_file()
+                .find_unique(
+                    cached_file::object_id_object_type(book.id, available_type.clone())
+                )
+                .exec()
+                .await {
+                    Ok(v) => v,
+                    Err(err) => {
+                        log::error!("{:?}", err);
+                        continue;
+                    }
+                };
+
+            if cached_file.is_some() {
+                continue;
+            }
+
+            cache_file(book.id, available_type, db.clone()).await;
+        }
+    }
 }

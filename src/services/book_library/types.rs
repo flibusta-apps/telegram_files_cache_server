@@ -36,6 +36,12 @@ pub struct BookWithRemote {
     pub authors: Vec<BookAuthor>,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct BaseBook {
+    pub id: i32,
+    pub available_types: Vec<String>
+}
+
 impl BookWithRemote {
     pub fn from_book(book: Book, remote_id: u32) -> Self {
         Self {
@@ -105,4 +111,16 @@ impl BookWithRemote {
 
         format!("{caption_title}\n\n{caption_authors}")
     }
+}
+
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub total: u32,
+
+    pub page: u32,
+
+    pub size: u32,
+    pub pages: u32,
 }

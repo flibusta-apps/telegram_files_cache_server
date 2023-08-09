@@ -4,6 +4,8 @@ use serde::de::DeserializeOwned;
 
 use crate::config::CONFIG;
 
+use self::types::{BaseBook, Page};
+
 async fn _make_request<T>(
     url: &str,
     params: Vec<(&str, String)>,
@@ -53,16 +55,13 @@ pub async fn get_books(
     page_size: u32,
     uploaded_gte: String,
     uploaded_lte: String,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let _params: Vec<(&str, String)> = vec![
+) -> Result<Page<BaseBook>, Box<dyn std::error::Error + Send + Sync>> {
+    let params: Vec<(&str, String)> = vec![
         ("page", page.to_string()),
-        ("page_size", page_size.to_string()),
+        ("size", page_size.to_string()),
         ("uploaded_gte", uploaded_gte),
         ("uploaded_lte", uploaded_lte)
     ];
 
-    // TODO
-    // _make_request(format!("/api/v1/books/").as_str(), params).await;
-
-    Ok(())
+    _make_request(format!("/api/v1/books/base/").as_str(), params).await
 }
