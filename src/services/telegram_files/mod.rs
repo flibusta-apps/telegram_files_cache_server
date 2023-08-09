@@ -1,7 +1,6 @@
 use base64::{engine::general_purpose, Engine};
 use reqwest::{Response, multipart::{Form, Part}, header};
 use serde::Deserialize;
-use tracing::log;
 
 use crate::config::CONFIG;
 
