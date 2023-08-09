@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine};
 use reqwest::{Response, multipart::{Form, Part}, header};
 use serde::Deserialize;
 use tracing::log;
@@ -57,10 +58,17 @@ pub async fn upload_to_telegram_files(
         .unwrap()
         .to_string();
 
-    let filename = headers
-        .get("x-filename-b64-ascii")
-        .unwrap()
-        .to_str()
+    let base64_encoder = general_purpose::STANDARD;
+
+    let filename = std::str::from_utf8(
+            &base64_encoder
+                .decode(
+                    headers
+                    .get("x-filename-b64-ascii")
+                    .unwrap()
+                )
+                .unwrap(),
+        )
         .unwrap()
         .to_string();
 
