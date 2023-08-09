@@ -69,6 +69,7 @@ pub async fn upload_to_telegram_files(
 
     let headers = data_response.headers();
 
+    log::info!("{:?}", data_response.status());
     log::info!("{:?}", headers);
 
     let file_size = headers
