@@ -38,8 +38,8 @@ impl Config {
             postgres_port: get_env("POSTGRES_PORT").parse().unwrap(),
             postgres_db: get_env("POSTGRES_DB"),
 
-            downloader_url: get_env("DOWNLOADER_API_KEY"),
-            downloader_api_key: get_env("DOWNLOADER_URL"),
+            downloader_api_key: get_env("DOWNLOADER_API_KEY"),
+            downloader_url: get_env("DOWNLOADER_URL"),
 
             library_api_key: get_env("LIBRARY_API_KEY"),
             library_url: get_env("LIBRARY_URL"),
