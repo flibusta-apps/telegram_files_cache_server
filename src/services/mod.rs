@@ -3,6 +3,7 @@ pub mod download_utils;
 pub mod telegram_files;
 pub mod downloader;
 
+use chrono::Duration;
 use tracing::log;
 
 use crate::{prisma::cached_file, views::Database};
@@ -135,8 +136,11 @@ pub async fn get_books_for_update() -> Result<Vec<BaseBook>, Box<dyn std::error:
 
     let page_size = 50;
 
-    let uploaded_gte = "".to_string();
-    let uploaded_lte = "".to_string();
+    let now = chrono::offset::Utc::now();
+    let subset_3 = now - Duration::days(3);
+
+    let uploaded_gte = subset_3.format("%Y-%m-%d").to_string();
+    let uploaded_lte = now.format("%Y-%m-%d").to_string();
 
     let first_page = match get_books(
         1,
