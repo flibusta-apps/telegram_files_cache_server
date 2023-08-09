@@ -29,7 +29,7 @@ pub async fn download_from_telegram_files(
 
     let response = reqwest::Client::new()
         .get(url)
-        .header("Authorization", CONFIG.library_api_key.clone())
+        .header("Authorization", CONFIG.files_api_key.clone())
         .send()
         .await?
         .error_for_status()?;
@@ -73,7 +73,7 @@ pub async fn upload_to_telegram_files(
 
     let response = reqwest::Client::new()
         .post(url)
-        .header("Authorization", CONFIG.library_api_key.clone())
+        .header("Authorization", CONFIG.files_api_key.clone())
         .multipart(form)
         .send()
         .await?
