@@ -22,8 +22,6 @@ pub async fn download_from_downloader(
         CONFIG.downloader_url
     );
 
-    log::info!("{url}");
-
     let response = reqwest::Client::new()
         .get(url)
         .header("Authorization", &CONFIG.downloader_api_key)
