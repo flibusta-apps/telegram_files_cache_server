@@ -50,9 +50,6 @@ pub async fn upload_to_telegram_files(
 
     let headers = data_response.headers();
 
-    log::info!("{:?}", data_response.status());
-    log::info!("{:?}", headers);
-
     let file_size = headers
         .get(header::CONTENT_LENGTH)
         .unwrap()
@@ -68,11 +65,12 @@ pub async fn upload_to_telegram_files(
         .to_string();
 
     let part = Part::stream(data_response)
-        .file_name(filename);
+        .file_name(filename.clone());
 
     let form = Form::new()
         .text("caption", caption)
         .text("file_size", file_size)
+        .text("filename", filename)
         .part("file", part);
 
     let response = reqwest::Client::new()
