@@ -28,12 +28,12 @@ impl std::error::Error for DownloadError {}
 
 
 pub async fn download_from_downloader(
+    source_id: u32,
     remote_id: u32,
-    object_id: i32,
     object_type: String
 ) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {
     let url = format!(
-        "{}/download/{remote_id}/{object_id}/{object_type}",
+        "{}/download/{source_id}/{remote_id}/{object_type}",
         CONFIG.downloader_url
     );
 
