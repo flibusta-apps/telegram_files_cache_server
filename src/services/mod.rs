@@ -98,8 +98,6 @@ pub async fn download_from_cache(
                 .await
                 .unwrap();
 
-            tokio::spawn(cache_file(cached_data.object_id, cached_data.object_type, db));
-
             log::error!("{:?}", err);
             return None;
         },

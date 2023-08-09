@@ -27,15 +27,23 @@ async fn download_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
     Extension(Ext { db }): Extension<Ext>
 ) -> impl IntoResponse {
-    let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+    let cached_file = match get_cached_file_or_cache(object_id, object_type.clone(), db.clone()).await {
         Some(cached_file) => cached_file,
         None => return StatusCode::NO_CONTENT.into_response(),
     };
 
-    let data = match download_from_cache(cached_file, db).await {
+    let data = match download_from_cache(cached_file, db.clone()).await {
         Some(v) => v,
         None => {
-            return StatusCode::NO_CONTENT.into_response();
+            let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+                Some(v) => v,
+                None => return StatusCode::NO_CONTENT.into_response(),
+            };
+
+            match download_from_cache(cached_file, db).await {
+                Some(v) => v,
+                None => return StatusCode::NO_CONTENT.into_response(),
+            }
         }
     };
 
