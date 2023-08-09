@@ -1,6 +1,4 @@
-use std::fmt;
-
-use reqwest::{Response, multipart::{Form, Part}, header, StatusCode};
+use reqwest::{Response, multipart::{Form, Part}, header};
 use serde::Deserialize;
 use tracing::log;
 
@@ -21,19 +19,6 @@ pub struct UploadResult {
 }
 
 
-#[derive(Debug, Clone)]
-struct DownloadError {
-    status_code: StatusCode,
-}
-
-impl fmt::Display for DownloadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Status code is {0}", self.status_code)
-    }
-}
-
-impl std::error::Error for DownloadError {}
-
 pub async fn download_from_telegram_files(
     message_id: i64,
     chat_id: i64
@@ -49,10 +34,6 @@ pub async fn download_from_telegram_files(
         .send()
         .await?
         .error_for_status()?;
-
-    if response.status() == StatusCode::NO_CONTENT {
-        return Err(Box::new(DownloadError { status_code: StatusCode::NO_CONTENT }))
-    };
 
     Ok(response)
 }
