@@ -198,11 +198,9 @@ pub async fn start_update_cache(
                     }
                 };
 
-            if cached_file.is_some() {
-                continue;
+            if cached_file.is_none() {
+                cache_file(book.id, available_type, db.clone()).await;
             }
-
-            cache_file(book.id, available_type, db.clone()).await;
         }
     }
 }
