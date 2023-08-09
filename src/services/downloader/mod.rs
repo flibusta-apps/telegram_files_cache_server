@@ -1,6 +1,5 @@
 use reqwest::Response;
 use serde::Deserialize;
-use tracing::log;
 
 use crate::config::CONFIG;
 
