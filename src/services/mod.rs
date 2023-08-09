@@ -131,3 +131,9 @@ pub async fn download_from_cache(
         caption
     })
 }
+
+pub async fn start_update_cache(
+    _db: Database
+) {
+    // TODO
+}

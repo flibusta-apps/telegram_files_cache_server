@@ -47,3 +47,22 @@ pub async fn get_book(
 ) -> Result<types::BookWithRemote, Box<dyn std::error::Error + Send + Sync>> {
     _make_request(format!("/api/v1/books/{book_id}").as_str(), vec![]).await
 }
+
+pub async fn get_books(
+    page: u32,
+    page_size: u32,
+    uploaded_gte: String,
+    uploaded_lte: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let _params: Vec<(&str, String)> = vec![
+        ("page", page.to_string()),
+        ("page_size", page_size.to_string()),
+        ("uploaded_gte", uploaded_gte),
+        ("uploaded_lte", uploaded_lte)
+    ];
+
+    // TODO
+    // _make_request(format!("/api/v1/books/").as_str(), params).await;
+
+    Ok(())
+}

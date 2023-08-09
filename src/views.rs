@@ -6,7 +6,7 @@ use tracing::Level;
 use std::sync::Arc;
 use base64::{engine::general_purpose, Engine};
 
-use crate::{config::CONFIG, db::get_prisma_client, prisma::{PrismaClient, cached_file::{self}}, services::{get_cached_file_or_cache, download_from_cache, download_utils::get_response_async_read}};
+use crate::{config::CONFIG, db::get_prisma_client, prisma::{PrismaClient, cached_file::{self}}, services::{get_cached_file_or_cache, download_from_cache, download_utils::get_response_async_read, start_update_cache}};
 
 
 pub type Database = Arc<PrismaClient>;
@@ -92,9 +92,11 @@ async fn delete_cached_file(
 }
 
 async fn update_cache(
-    _ext: Extension<Ext>
+    Extension(Ext { db, .. }): Extension<Ext>
 ) -> impl IntoResponse {
-    StatusCode::OK.into_response()  // TODO
+    tokio::spawn(start_update_cache(db));
+
+    StatusCode::OK.into_response()
 }
 
 //

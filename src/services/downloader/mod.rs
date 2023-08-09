@@ -1,5 +1,6 @@
 use reqwest::Response;
 use serde::Deserialize;
+use tracing::log;
 
 use crate::config::CONFIG;
 
@@ -20,6 +21,8 @@ pub async fn download_from_downloader(
         "{}/download/{remote_id}/{object_id}/{object_type}",
         CONFIG.downloader_url
     );
+
+    log::info!("{url}");
 
     let response = reqwest::Client::new()
         .get(url)
