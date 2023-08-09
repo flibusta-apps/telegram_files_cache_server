@@ -83,6 +83,7 @@ pub async fn cache_file(
 
 pub async fn download_from_cache(
     cached_data: cached_file::Data,
+    db: Database
 ) -> Option<DownloadResult> {
     let response_task = tokio::task::spawn(download_from_telegram_files(cached_data.message_id, cached_data.chat_id));
     let filename_task = tokio::task::spawn(get_filename(cached_data.object_id, cached_data.object_type.clone()));
@@ -91,6 +92,14 @@ pub async fn download_from_cache(
     let response = match response_task.await.unwrap() {
         Ok(v) => v,
         Err(err) => {
+            db.cached_file()
+                .delete(cached_file::object_id_object_type(cached_data.object_id, cached_data.object_type.clone()))
+                .exec()
+                .await
+                .unwrap();
+
+            tokio::spawn(cache_file(cached_data.object_id, cached_data.object_type, db));
+
             log::error!("{:?}", err);
             return None;
         },
