@@ -42,7 +42,7 @@ pub async fn cache_file(
     };
 
     let downloader_result = match download_from_downloader(
-        book.remote_id,
+        book.source.id,
         object_id,
         object_type.clone()
     ).await {

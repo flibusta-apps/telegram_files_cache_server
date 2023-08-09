@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Source {
-    // id: u32,
+    pub id: u32,
     // name: String
 }
 
@@ -23,6 +23,7 @@ pub struct Book {
     pub file_type: String,
     pub uploaded: String,
     pub authors: Vec<BookAuthor>,
+    pub source: Source,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -34,6 +35,7 @@ pub struct BookWithRemote {
     pub file_type: String,
     pub uploaded: String,
     pub authors: Vec<BookAuthor>,
+    pub source: Source,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -51,7 +53,8 @@ impl BookWithRemote {
             lang: book.lang,
             file_type: book.file_type,
             uploaded: book.uploaded,
-            authors: book.authors
+            authors: book.authors,
+            source: book.source,
         }
     }
 }
