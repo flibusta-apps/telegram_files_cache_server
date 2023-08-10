@@ -24,7 +24,7 @@ tokio-util = { version = "0.7.8", features = ["compat"] }
 axum = { version = "0.6.18", features = ["json"] }
 axum-prometheus = "0.4.0"
 chrono = "0.4.26"
-sentry = "0.31.5"
+sentry = { version = "0.31.5", features = ["debug-images"] }
 
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"]}
