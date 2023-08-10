@@ -183,7 +183,7 @@ pub async fn start_update_cache(
     };
 
     for book in books {
-        for available_type in book.available_types {
+        'types: for available_type in book.available_types {
             let cached_file = match db
                 .cached_file()
                 .find_unique(
@@ -194,13 +194,15 @@ pub async fn start_update_cache(
                     Ok(v) => v,
                     Err(err) => {
                         log::error!("{:?}", err);
-                        continue;
+                        continue 'types;
                     }
                 };
 
-            if cached_file.is_none() {
-                cache_file(book.id, available_type, db.clone()).await;
+            if cached_file.is_some() {
+                continue 'types;
             }
+
+            cache_file(book.id, available_type, db.clone()).await;
         }
     }
 }
