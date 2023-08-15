@@ -2,13 +2,15 @@ pub mod book_library;
 pub mod download_utils;
 pub mod telegram_files;
 pub mod downloader;
+pub mod minio;
 
 use chrono::Duration;
+use serde::Serialize;
 use tracing::log;
 
 use crate::{prisma::cached_file, views::Database};
 
-use self::{download_utils::DownloadResult, telegram_files::{download_from_telegram_files, UploadData, upload_to_telegram_files}, downloader::{get_filename, FilenameData, download_from_downloader}, book_library::{get_book, types::BaseBook, get_books}};
+use self::{download_utils::{DownloadResult, response_to_tempfile}, telegram_files::{download_from_telegram_files, UploadData, upload_to_telegram_files}, downloader::{get_filename, FilenameData, download_from_downloader}, book_library::{get_book, types::BaseBook, get_books}, minio::upload_to_minio};
 
 
 pub async fn get_cached_file_or_cache(
@@ -129,6 +131,49 @@ pub async fn download_from_cache(
         filename_ascii,
         caption
     })
+}
+
+#[derive(Serialize)]
+pub struct FileLinkResult {
+    pub link: String,
+    pub filename: String,
+    pub filename_ascii: String,
+    pub caption: String
+}
+
+pub async fn get_download_link(
+    object_id: i32,
+    object_type: String,
+    db: Database
+) -> Result<Option<FileLinkResult>, Box<dyn std::error::Error + Send + Sync>> {
+    let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let data = match download_from_cache(cached_file, db).await {
+        Some(v) => v,
+        None => return Ok(None),
+    };
+
+    let DownloadResult { mut response, filename, filename_ascii, caption } = data;
+
+    let tempfile = match response_to_tempfile(&mut response).await {
+        Some(v) => v.0,
+        None => return Ok(None),
+    };
+
+    let link = match upload_to_minio(tempfile, filename.clone()).await {
+        Ok(v) => v,
+        Err(err) => return Err(err),
+    };
+
+    Ok(Some(FileLinkResult {
+        link,
+        filename,
+        filename_ascii,
+        caption
+    }))
 }
 
 pub async fn get_books_for_update() -> Result<Vec<BaseBook>, Box<dyn std::error::Error + Send + Sync>> {

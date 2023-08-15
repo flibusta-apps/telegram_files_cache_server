@@ -91,6 +91,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eab1c04a571841102f5345a8fc0f6bb3d31c315dec879b5c6e42e40ce7ffa34e"
 
 [[package]]
+name = "async-mutex"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "479db852db25d9dbf6204e6cb6253698f175c15726470f78af0d918e99d6156e"
+dependencies = [
+ "event-listener",
+]
+
+[[package]]
 name = "async-native-tls"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1086,6 +1095,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "event-listener"
+version = "2.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
 name = "failure"
 version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1564,6 +1579,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hyper-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d78e1e73ec14cf7375674f74d7dde185c8206fd9dea6fb6295e8a98098aaa97"
+dependencies = [
+ "futures-util",
+ "http",
+ "hyper",
+ "rustls 0.21.6",
+ "tokio",
+ "tokio-rustls 0.24.1",
+]
+
+[[package]]
 name = "hyper-tls"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2014,6 +2043,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e6bcd6433cff03a4bfc3d9834d504467db1f1cf6d0ea765d37d330249ed629d"
 
 [[package]]
+name = "md5"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+
+[[package]]
 name = "memchr"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2232,6 +2267,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
+name = "minio-rsc"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0958cac6e5ce437d21bf866c2e410f5e88f849150ab2d946702ed994729e2e1f"
+dependencies = [
+ "async-mutex",
+ "base64 0.21.2",
+ "bytes",
+ "chrono",
+ "futures",
+ "futures-core",
+ "futures-util",
+ "hex",
+ "hmac",
+ "hyper",
+ "md5 0.7.0",
+ "once_cell",
+ "quick-xml",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.7",
+ "urlencoding",
+]
+
+[[package]]
 name = "miniz_oxide"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2295,7 +2357,7 @@ dependencies = [
  "percent-encoding",
  "rand 0.8.5",
  "rustc_version_runtime",
- "rustls",
+ "rustls 0.20.8",
  "rustls-pemfile",
  "serde",
  "serde_bytes",
@@ -2308,7 +2370,7 @@ dependencies = [
  "take_mut",
  "thiserror",
  "tokio",
- "tokio-rustls",
+ "tokio-rustls 0.23.4",
  "tokio-util 0.7.8",
  "trust-dns-proto",
  "trust-dns-resolver",
@@ -3394,6 +3456,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
+name = "quick-xml"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81b9228215d82c7b61490fec1de287136b5de6f5700f6e58ea9ad61a7964ca51"
+dependencies = [
+ "memchr",
+ "serde",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3626,6 +3698,7 @@ dependencies = [
  "http",
  "http-body",
  "hyper",
+ "hyper-rustls",
  "hyper-tls",
  "ipnet",
  "js-sys",
@@ -3636,11 +3709,14 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
+ "rustls 0.21.6",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "tokio",
  "tokio-native-tls 0.3.1",
+ "tokio-rustls 0.24.1",
  "tokio-util 0.7.8",
  "tower-service",
  "url",
@@ -3648,6 +3724,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+ "webpki-roots",
  "winreg 0.10.1",
 ]
 
@@ -3804,12 +3881,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls"
+version = "0.21.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d1feddffcfcc0b33f5c6ce9a29e341e4cd59c3f78e7ee45f4a40c038b1d6cbb"
+dependencies = [
+ "log",
+ "ring",
+ "rustls-webpki",
+ "sct",
+]
+
+[[package]]
 name = "rustls-pemfile"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d3987094b1d07b653b7dfdc3f70ce9a1da9c51ac18c1b06b662e4f9a0e9f4b2"
 dependencies = [
  "base64 0.21.2",
+]
+
+[[package]]
+name = "rustls-webpki"
+version = "0.101.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "261e9e0888cba427c3316e6322805653c9425240b6fd96cee7cb671ab70ab8d0"
+dependencies = [
+ "ring",
+ "untrusted",
 ]
 
 [[package]]
@@ -4525,15 +4624,18 @@ dependencies = [
  "axum",
  "axum-prometheus",
  "base64 0.21.2",
+ "bytes",
  "chrono",
  "futures",
  "futures-core",
+ "minio-rsc",
  "once_cell",
  "prisma-client-rust",
  "reqwest",
  "sentry",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-util 0.7.8",
  "tower-http",
@@ -4748,9 +4850,19 @@ version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c43ee83903113e03984cb9e5cebe6c04a5116269e900e3ddba8f068a62adda59"
 dependencies = [
- "rustls",
+ "rustls 0.20.8",
  "tokio",
  "webpki",
+]
+
+[[package]]
+name = "tokio-rustls"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+dependencies = [
+ "rustls 0.21.6",
+ "tokio",
 ]
 
 [[package]]
@@ -5125,6 +5237,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
+
+[[package]]
 name = "user-facing-error-macros"
 version = "0.1.0"
 source = "git+https://github.com/Brendonovich/prisma-engines?tag=pcr-0.6.5#7cc20cc54a7ab0b5e38c81901826939a91a17ba0"
@@ -5362,7 +5480,7 @@ checksum = "8f820cd208ce9c6b050812dc2d724ba98c6c1e9db5ce9b3f58d925ae5723a5e6"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
- "md5",
+ "md5 0.6.1",
  "rand 0.7.3",
  "winapi",
 ]

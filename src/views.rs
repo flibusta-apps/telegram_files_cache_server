@@ -2,11 +2,11 @@ use axum::{Router, response::{Response, IntoResponse, AppendHeaders}, http::{Sta
 use axum_prometheus::PrometheusMetricLayer;
 use tokio_util::io::ReaderStream;
 use tower_http::trace::{TraceLayer, self};
-use tracing::Level;
+use tracing::{Level, log};
 use std::sync::Arc;
 use base64::{engine::general_purpose, Engine};
 
-use crate::{config::CONFIG, db::get_prisma_client, prisma::{PrismaClient, cached_file::{self}}, services::{get_cached_file_or_cache, download_from_cache, download_utils::get_response_async_read, start_update_cache}};
+use crate::{config::CONFIG, db::get_prisma_client, prisma::{PrismaClient, cached_file::{self}}, services::{get_cached_file_or_cache, download_from_cache, download_utils::get_response_async_read, start_update_cache, get_download_link}};
 
 
 pub type Database = Arc<PrismaClient>;
@@ -73,6 +73,24 @@ async fn download_cached_file(
     ]);
 
     (headers, body).into_response()
+}
+
+async fn get_link(
+    Path((object_id, object_type)): Path<(i32, String)>,
+    Extension(Ext { db, .. }): Extension<Ext>
+) -> impl IntoResponse {
+    match get_download_link(object_id, object_type.clone(), db.clone()).await {
+        Ok(data) => {
+            match data {
+                Some(data) => Json(data).into_response(),
+                None => return StatusCode::NO_CONTENT.into_response(),
+            }
+        },
+        Err(err) => {
+            log::error!("{:?}", err);
+            return StatusCode::NO_CONTENT.into_response();
+        },
+    }
 }
 
 async fn delete_cached_file(
@@ -145,6 +163,7 @@ pub async fn get_router() -> Router {
     let app_router = Router::new()
         .route("/:object_id/:object_type/", get(get_cached_file))
         .route("/download/:object_id/:object_type/", get(download_cached_file))
+        .route("/link/:object_id/:object_type/", get(get_link))
         .route("/:object_id/:object_type/", delete(delete_cached_file))
         .route("/update_cache", post(update_cache))
 
