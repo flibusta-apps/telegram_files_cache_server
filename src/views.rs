@@ -83,12 +83,12 @@ async fn get_link(
         Ok(data) => {
             match data {
                 Some(data) => Json(data).into_response(),
-                None => return StatusCode::NO_CONTENT.into_response(),
+                None => StatusCode::NO_CONTENT.into_response(),
             }
         },
         Err(err) => {
             log::error!("{:?}", err);
-            return StatusCode::NO_CONTENT.into_response();
+            StatusCode::NO_CONTENT.into_response()
         },
     }
 }

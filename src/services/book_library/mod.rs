@@ -63,5 +63,5 @@ pub async fn get_books(
         ("uploaded_lte", uploaded_lte)
     ];
 
-    _make_request(format!("/api/v1/books/base/").as_str(), params).await
+    _make_request("/api/v1/books/base/", params).await
 }
