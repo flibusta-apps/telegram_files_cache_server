@@ -102,8 +102,8 @@ impl BookWithRemote {
         let mut author_parts_len = 3;
 
         for author_caption in author_captions {
-            if caption_title.len() + author_parts_len + author_caption.len() < 512 {
-                author_parts_len = author_caption.len() + 1;
+            if caption_title.len() + author_parts_len + author_caption.len() < 1024 {
+                author_parts_len += author_caption.len() + 1;
                 author_parts.push(author_caption);
             } else {
                 break;
