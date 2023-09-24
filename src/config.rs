@@ -23,14 +23,12 @@ pub struct Config {
     pub files_api_key: String,
     pub files_url: String,
 
-    pub sentry_dsn: String
+    pub sentry_dsn: String,
 }
-
 
 fn get_env(env: &'static str) -> String {
     std::env::var(env).unwrap_or_else(|_| panic!("Cannot get the {} env variable", env))
 }
-
 
 impl Config {
     pub fn load() -> Config {
@@ -57,12 +55,9 @@ impl Config {
             files_api_key: get_env("FILES_SERVER_API_KEY"),
             files_url: get_env("FILES_SERVER_URL"),
 
-            sentry_dsn: get_env("SENTRY_DSN")
+            sentry_dsn: get_env("SENTRY_DSN"),
         }
     }
 }
 
-
-pub static CONFIG: Lazy<Config> = Lazy::new(|| {
-    Config::load()
-});
+pub static CONFIG: Lazy<Config> = Lazy::new(Config::load);

@@ -1,13 +1,31 @@
-use axum::{Router, response::{Response, IntoResponse, AppendHeaders}, http::{StatusCode, self, Request, header}, middleware::{Next, self}, Extension, routing::{get, delete, post}, extract::Path, Json, body::StreamBody};
+use axum::{
+    body::StreamBody,
+    extract::Path,
+    http::{self, header, Request, StatusCode},
+    middleware::{self, Next},
+    response::{AppendHeaders, IntoResponse, Response},
+    routing::{delete, get, post},
+    Extension, Json, Router,
+};
 use axum_prometheus::PrometheusMetricLayer;
-use tokio_util::io::ReaderStream;
-use tower_http::trace::{TraceLayer, self};
-use tracing::{Level, log};
-use std::sync::Arc;
 use base64::{engine::general_purpose, Engine};
+use std::sync::Arc;
+use tokio_util::io::ReaderStream;
+use tower_http::trace::{self, TraceLayer};
+use tracing::{log, Level};
 
-use crate::{config::CONFIG, db::get_prisma_client, prisma::{PrismaClient, cached_file::{self}}, services::{get_cached_file_or_cache, download_from_cache, download_utils::get_response_async_read, start_update_cache, get_download_link}};
-
+use crate::{
+    config::CONFIG,
+    db::get_prisma_client,
+    prisma::{
+        cached_file::{self},
+        PrismaClient,
+    },
+    services::{
+        download_from_cache, download_utils::get_response_async_read, get_cached_file_or_cache,
+        get_download_link, start_update_cache,
+    },
+};
 
 pub type Database = Arc<PrismaClient>;
 
@@ -15,7 +33,7 @@ pub type Database = Arc<PrismaClient>;
 
 async fn get_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
-    Extension(Ext { db, .. }): Extension<Ext>
+    Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
     match get_cached_file_or_cache(object_id, object_type, db).await {
         Some(cached_file) => Json(cached_file).into_response(),
@@ -25,20 +43,22 @@ async fn get_cached_file(
 
 async fn download_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
-    Extension(Ext { db }): Extension<Ext>
+    Extension(Ext { db }): Extension<Ext>,
 ) -> impl IntoResponse {
-    let cached_file = match get_cached_file_or_cache(object_id, object_type.clone(), db.clone()).await {
-        Some(cached_file) => cached_file,
-        None => return StatusCode::NO_CONTENT.into_response(),
-    };
+    let cached_file =
+        match get_cached_file_or_cache(object_id, object_type.clone(), db.clone()).await {
+            Some(cached_file) => cached_file,
+            None => return StatusCode::NO_CONTENT.into_response(),
+        };
 
     let data = match download_from_cache(cached_file, db.clone()).await {
         Some(v) => v,
         None => {
-            let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
-                Some(v) => v,
-                None => return StatusCode::NO_CONTENT.into_response(),
-            };
+            let cached_file =
+                match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+                    Some(v) => v,
+                    None => return StatusCode::NO_CONTENT.into_response(),
+                };
 
             match download_from_cache(cached_file, db).await {
                 Some(v) => v,
@@ -68,8 +88,8 @@ async fn download_cached_file(
         ),
         (
             header::HeaderName::from_static("x-caption-b64"),
-            encoder.encode(caption)
-        )
+            encoder.encode(caption),
+        ),
     ]);
 
     (headers, body).into_response()
@@ -77,28 +97,30 @@ async fn download_cached_file(
 
 async fn get_link(
     Path((object_id, object_type)): Path<(i32, String)>,
-    Extension(Ext { db, .. }): Extension<Ext>
+    Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
     match get_download_link(object_id, object_type.clone(), db.clone()).await {
-        Ok(data) => {
-            match data {
-                Some(data) => Json(data).into_response(),
-                None => StatusCode::NO_CONTENT.into_response(),
-            }
+        Ok(data) => match data {
+            Some(data) => Json(data).into_response(),
+            None => StatusCode::NO_CONTENT.into_response(),
         },
         Err(err) => {
             log::error!("{:?}", err);
             StatusCode::NO_CONTENT.into_response()
-        },
+        }
     }
 }
 
 async fn delete_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
-    Extension(Ext { db, .. }): Extension<Ext>
+    Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
-    let cached_file = db.cached_file()
-        .find_unique(cached_file::object_id_object_type(object_id, object_type.clone()))
+    let cached_file = db
+        .cached_file()
+        .find_unique(cached_file::object_id_object_type(
+            object_id,
+            object_type.clone(),
+        ))
         .exec()
         .await
         .unwrap();
@@ -112,14 +134,12 @@ async fn delete_cached_file(
                 .unwrap();
 
             Json(v).into_response()
-        },
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
-async fn update_cache(
-    Extension(Ext { db, .. }): Extension<Ext>
-) -> impl IntoResponse {
+async fn update_cache(Extension(Ext { db, .. }): Extension<Ext>) -> impl IntoResponse {
     tokio::spawn(start_update_cache(db));
 
     StatusCode::OK.into_response()
@@ -127,9 +147,9 @@ async fn update_cache(
 
 //
 
-
 async fn auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
-    let auth_header = req.headers()
+    let auth_header = req
+        .headers()
         .get(http::header::AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
 
@@ -146,12 +166,10 @@ async fn auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode>
     Ok(next.run(req).await)
 }
 
-
 #[derive(Clone)]
 struct Ext {
     pub db: Arc<PrismaClient>,
 }
-
 
 pub async fn get_router() -> Router {
     let db = Arc::new(get_prisma_client().await);
@@ -162,26 +180,26 @@ pub async fn get_router() -> Router {
 
     let app_router = Router::new()
         .route("/:object_id/:object_type/", get(get_cached_file))
-        .route("/download/:object_id/:object_type/", get(download_cached_file))
+        .route(
+            "/download/:object_id/:object_type/",
+            get(download_cached_file),
+        )
         .route("/link/:object_id/:object_type/", get(get_link))
         .route("/:object_id/:object_type/", delete(delete_cached_file))
         .route("/update_cache", post(update_cache))
-
         .layer(middleware::from_fn(auth))
         .layer(Extension(ext))
         .layer(prometheus_layer);
 
-    let metric_router = Router::new()
-        .route("/metrics", get(|| async move { metric_handle.render() }));
+    let metric_router =
+        Router::new().route("/metrics", get(|| async move { metric_handle.render() }));
 
     Router::new()
         .nest("/api/v1/", app_router)
         .nest("/", metric_router)
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(trace::DefaultMakeSpan::new()
-                    .level(Level::INFO))
-                .on_response(trace::DefaultOnResponse::new()
-                    .level(Level::INFO)),
+                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
         )
 }

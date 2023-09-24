@@ -5,13 +5,11 @@ use serde::Deserialize;
 
 use crate::config::CONFIG;
 
-
 #[derive(Deserialize)]
 pub struct FilenameData {
     pub filename: String,
-    pub filename_ascii: String
+    pub filename_ascii: String,
 }
-
 
 #[derive(Debug, Clone)]
 struct DownloadError {
@@ -26,11 +24,10 @@ impl fmt::Display for DownloadError {
 
 impl std::error::Error for DownloadError {}
 
-
 pub async fn download_from_downloader(
     source_id: u32,
     remote_id: u32,
-    object_type: String
+    object_type: String,
 ) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {
     let url = format!(
         "{}/download/{source_id}/{remote_id}/{object_type}",
@@ -45,16 +42,17 @@ pub async fn download_from_downloader(
         .error_for_status()?;
 
     if response.status() == StatusCode::NO_CONTENT {
-        return Err(Box::new(DownloadError { status_code: StatusCode::NO_CONTENT }))
+        return Err(Box::new(DownloadError {
+            status_code: StatusCode::NO_CONTENT,
+        }));
     };
 
     Ok(response)
 }
 
-
 pub async fn get_filename(
     object_id: i32,
-    object_type: String
+    object_type: String,
 ) -> Result<FilenameData, Box<dyn std::error::Error + Send + Sync>> {
     let url = format!(
         "{}/filename/{object_id}/{object_type}",
@@ -70,8 +68,6 @@ pub async fn get_filename(
 
     match response.json::<FilenameData>().await {
         Ok(v) => Ok(v),
-        Err(err) => {
-            Err(Box::new(err))
-        },
+        Err(err) => Err(Box::new(err)),
     }
 }

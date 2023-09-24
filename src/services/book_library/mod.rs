@@ -60,7 +60,7 @@ pub async fn get_books(
         ("page", page.to_string()),
         ("size", page_size.to_string()),
         ("uploaded_gte", uploaded_gte),
-        ("uploaded_lte", uploaded_lte)
+        ("uploaded_lte", uploaded_lte),
     ];
 
     _make_request("/api/v1/books/base/", params).await

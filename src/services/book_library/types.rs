@@ -1,6 +1,5 @@
 use serde::Deserialize;
 
-
 #[derive(Deserialize, Debug, Clone)]
 pub struct Source {
     pub id: u32,
@@ -41,7 +40,7 @@ pub struct BookWithRemote {
 #[derive(Deserialize, Debug, Clone)]
 pub struct BaseBook {
     pub id: i32,
-    pub available_types: Vec<String>
+    pub available_types: Vec<String>,
 }
 
 impl BookWithRemote {
@@ -58,7 +57,6 @@ impl BookWithRemote {
         }
     }
 }
-
 
 impl BookAuthor {
     pub fn get_caption(self) -> String {
@@ -82,21 +80,13 @@ impl BookAuthor {
     }
 }
 
-
 impl BookWithRemote {
     pub fn get_caption(self) -> String {
-        let BookWithRemote {
-            title,
-            authors,
-            ..
-        } = self;
+        let BookWithRemote { title, authors, .. } = self;
 
         let caption_title = format!("📖 {title}");
 
-        let author_captions: Vec<String> = authors
-            .into_iter()
-            .map(|a| a.get_caption())
-            .collect();
+        let author_captions: Vec<String> = authors.into_iter().map(|a| a.get_caption()).collect();
 
         let mut author_parts: Vec<String> = vec![];
         let mut author_parts_len = 3;
@@ -115,7 +105,6 @@ impl BookWithRemote {
         format!("{caption_title}\n\n{caption_authors}")
     }
 }
-
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Page<T> {

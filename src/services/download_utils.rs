@@ -1,4 +1,4 @@
-use std::io::{Write, Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, Write};
 
 use bytes::Buf;
 use futures::TryStreamExt;
@@ -6,7 +6,6 @@ use reqwest::Response;
 use tempfile::SpooledTempFile;
 use tokio::io::AsyncRead;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-
 
 pub struct DownloadResult {
     pub response: Response,
