@@ -2,12 +2,7 @@ use std::io::Read;
 
 use async_stream::stream;
 use bytes::Bytes;
-use minio_rsc::{
-    errors::MinioError,
-    provider::StaticProvider,
-    types::args::{ObjectArgs, PresignedArgs},
-    Minio,
-};
+use minio_rsc::{client::PresignedArgs, error::Error, provider::StaticProvider, Minio};
 use tempfile::SpooledTempFile;
 
 use crate::config;
@@ -20,7 +15,7 @@ pub fn get_minio() -> Minio {
     );
 
     Minio::builder()
-        .host(&config::CONFIG.minio_host)
+        .endpoint(&config::CONFIG.minio_host)
         .provider(provider)
         .secure(false)
         .build()
@@ -29,7 +24,7 @@ pub fn get_minio() -> Minio {
 
 pub fn get_stream(
     mut temp_file: Box<dyn Read + Send>,
-) -> impl futures_core::Stream<Item = Result<Bytes, MinioError>> {
+) -> impl futures_core::Stream<Item = Result<Bytes, Error>> {
     stream! {
         let mut buf = [0; 2048];
 
@@ -62,8 +57,10 @@ pub async fn upload_to_minio(
 
     if let Err(err) = minio
         .put_object_stream(
-            ObjectArgs::new(&config::CONFIG.minio_bucket, filename.clone()),
+            &config::CONFIG.minio_bucket,
+            filename.clone(),
             Box::pin(data_stream),
+            None,
         )
         .await
     {
