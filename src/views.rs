@@ -1,5 +1,5 @@
 use axum::{
-    body::StreamBody,
+    body::Body,
     extract::Path,
     http::{self, header, Request, StatusCode},
     middleware::{self, Next},
@@ -75,7 +75,7 @@ async fn download_cached_file(
 
     let reader = get_response_async_read(data.response);
     let stream = ReaderStream::new(reader);
-    let body = StreamBody::new(stream);
+    let body = Body::from_stream(stream);
 
     let headers = AppendHeaders([
         (
@@ -147,7 +147,7 @@ async fn update_cache(Extension(Ext { db, .. }): Extension<Ext>) -> impl IntoRes
 
 //
 
-async fn auth<B>(req: Request<B>, next: Next<B>) -> Result<Response, StatusCode> {
+async fn auth(req: Request<axum::body::Body>, next: Next) -> Result<Response, StatusCode> {
     let auth_header = req
         .headers()
         .get(http::header::AUTHORIZATION)
