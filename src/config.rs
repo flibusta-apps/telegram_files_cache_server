@@ -10,6 +10,7 @@ pub struct Config {
     pub postgres_db: String,
 
     pub minio_host: String,
+    pub internal_minio_host: String,
     pub minio_bucket: String,
     pub minio_access_key: String,
     pub minio_secret_key: String,
@@ -42,6 +43,7 @@ impl Config {
             postgres_db: get_env("POSTGRES_DB"),
 
             minio_host: get_env("MINIO_HOST"),
+            internal_minio_host: get_env("INTERNAL_MINIO_HOST"),
             minio_bucket: get_env("MINIO_BUCKET"),
             minio_access_key: get_env("MINIO_ACCESS_KEY"),
             minio_secret_key: get_env("MINIO_SECRET_KEY"),

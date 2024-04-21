@@ -17,6 +17,21 @@ pub fn get_minio() -> Minio {
     Minio::builder()
         .endpoint(&config::CONFIG.minio_host)
         .provider(provider)
+        .secure(true)
+        .build()
+        .unwrap()
+}
+
+pub fn get_internal_minio() -> Minio {
+    let provider = StaticProvider::new(
+        &config::CONFIG.minio_access_key,
+        &config::CONFIG.minio_secret_key,
+        None,
+    );
+
+    Minio::builder()
+        .endpoint(&config::CONFIG.internal_minio_host)
+        .provider(provider)
         .secure(false)
         .build()
         .unwrap()
@@ -42,20 +57,25 @@ pub async fn upload_to_minio(
     archive: SpooledTempFile,
     filename: String,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let minio = get_minio();
+    let internal_minio = get_internal_minio();
 
-    let is_bucket_exist = match minio.bucket_exists(&config::CONFIG.minio_bucket).await {
+    let is_bucket_exist = match internal_minio
+        .bucket_exists(&config::CONFIG.minio_bucket)
+        .await
+    {
         Ok(v) => v,
         Err(err) => return Err(Box::new(err)),
     };
 
     if !is_bucket_exist {
-        let _ = minio.make_bucket(&config::CONFIG.minio_bucket, false).await;
+        let _ = internal_minio
+            .make_bucket(&config::CONFIG.minio_bucket, false)
+            .await;
     }
 
     let data_stream = get_stream(Box::new(archive));
 
-    if let Err(err) = minio
+    if let Err(err) = internal_minio
         .put_object_stream(
             &config::CONFIG.minio_bucket,
             filename.clone(),
@@ -66,6 +86,8 @@ pub async fn upload_to_minio(
     {
         return Err(Box::new(err));
     }
+
+    let minio = get_minio();
 
     let link = match minio
         .presigned_get_object(PresignedArgs::new(&config::CONFIG.minio_bucket, filename))
