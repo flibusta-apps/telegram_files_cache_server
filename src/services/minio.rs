@@ -38,7 +38,7 @@ pub fn get_internal_minio() -> Minio {
 }
 
 pub fn get_stream(
-    mut temp_file: Box<dyn Read + Send>,
+    mut temp_file: Box<dyn Read + Send + Sync>,
 ) -> impl futures_core::Stream<Item = Result<Bytes, Error>> {
     stream! {
         let mut buf = [0; 2048];
