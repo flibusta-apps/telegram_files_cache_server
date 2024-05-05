@@ -11,7 +11,7 @@ use once_cell::sync::Lazy;
 use serde::Serialize;
 use teloxide::{
     requests::Requester,
-    types::{ChatId, MessageId},
+    types::{ChatId, MessageId, Recipient},
 };
 use tracing::log;
 
@@ -101,7 +101,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
 
             bot.copy_message(
                 config::CONFIG.temp_channel_username.to_string(),
-                ChatId(new_original.chat_id),
+                Recipient::Id(ChatId(new_original.chat_id)),
                 MessageId(new_original.message_id.try_into().unwrap()),
             )
             .await
