@@ -36,7 +36,7 @@ pub struct CacheData {
     pub object_id: i32,
     pub object_type: String,
     pub message_id: i32,
-    pub chat_id: String,
+    pub chat_id: i64,
 }
 
 pub static CHAT_DONATION_NOTIFICATIONS_CACHE: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
@@ -47,7 +47,10 @@ pub static CHAT_DONATION_NOTIFICATIONS_CACHE: Lazy<Cache<i32, MessageId>> = Lazy
             Box::pin(async move {
                 let bot = ROUND_ROBIN_BOT.get_bot();
                 let _ = bot
-                    .delete_message(config::CONFIG.temp_channel_username.to_string(), message_id)
+                    .delete_message(
+                        Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
+                        message_id,
+                    )
                     .await;
             })
         })
@@ -80,7 +83,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
 
     let message_id = match bot
         .copy_message(
-            config::CONFIG.temp_channel_username.to_string(),
+            Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
             Recipient::Id(ChatId(original.chat_id)),
             MessageId(original.message_id.try_into().unwrap()),
         )
@@ -100,7 +103,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
                     .unwrap();
 
             bot.copy_message(
-                config::CONFIG.temp_channel_username.to_string(),
+                Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
                 Recipient::Id(ChatId(new_original.chat_id)),
                 MessageId(new_original.message_id.try_into().unwrap()),
             )
@@ -118,7 +121,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
         object_id: original.object_id,
         object_type: original.object_type,
         message_id: message_id.0,
-        chat_id: config::CONFIG.temp_channel_username.to_string(),
+        chat_id: config::CONFIG.temp_channel_id,
     }
 }
 
