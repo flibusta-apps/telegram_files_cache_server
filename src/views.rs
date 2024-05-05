@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::Path,
+    extract::{Path, Query},
     http::{self, header, Request, StatusCode},
     middleware::{self, Next},
     response::{AppendHeaders, IntoResponse, Response},
@@ -9,6 +9,7 @@ use axum::{
 };
 use axum_prometheus::PrometheusMetricLayer;
 use base64::{engine::general_purpose, Engine};
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio_util::io::ReaderStream;
 use tower_http::trace::{self, TraceLayer};
@@ -17,13 +18,10 @@ use tracing::{log, Level};
 use crate::{
     config::CONFIG,
     db::get_prisma_client,
-    prisma::{
-        cached_file::{self},
-        PrismaClient,
-    },
+    prisma::{cached_file, PrismaClient},
     services::{
-        download_from_cache, download_utils::get_response_async_read, get_cached_file_or_cache,
-        get_download_link, start_update_cache,
+        download_from_cache, download_utils::get_response_async_read, get_cached_file_copy,
+        get_cached_file_or_cache, get_download_link, start_update_cache, CacheData,
     },
 };
 
@@ -31,14 +29,28 @@ pub type Database = Arc<PrismaClient>;
 
 //
 
+#[derive(Deserialize)]
+pub struct GetCachedFileQuery {
+    pub copy: bool,
+}
+
 async fn get_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
+    Query(GetCachedFileQuery { copy }): Query<GetCachedFileQuery>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
-    match get_cached_file_or_cache(object_id, object_type, db).await {
-        Some(cached_file) => Json(cached_file).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
+    let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+        Some(cached_file) => cached_file,
+        None => return StatusCode::NOT_FOUND.into_response(),
+    };
+
+    if !copy {
+        return Json(cached_file).into_response();
     }
+
+    let copy_file: CacheData = get_cached_file_copy(cached_file, db).await;
+
+    Json(copy_file).into_response()
 }
 
 async fn download_cached_file(

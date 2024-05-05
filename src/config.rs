@@ -24,6 +24,9 @@ pub struct Config {
     pub files_api_key: String,
     pub files_url: String,
 
+    pub bot_tokens: Vec<String>,
+    pub temp_channel_username: String,
+
     pub sentry_dsn: String,
 }
 
@@ -56,6 +59,9 @@ impl Config {
 
             files_api_key: get_env("FILES_SERVER_API_KEY"),
             files_url: get_env("FILES_SERVER_URL"),
+
+            bot_tokens: serde_json::from_str(&get_env("BOT_TOKENS")).unwrap(),
+            temp_channel_username: get_env("TEMP_CHANNEL_USERNAME"),
 
             sentry_dsn: get_env("SENTRY_DSN"),
         }

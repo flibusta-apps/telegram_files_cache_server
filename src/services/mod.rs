@@ -1,22 +1,58 @@
 pub mod book_library;
+pub mod bots;
 pub mod download_utils;
 pub mod downloader;
 pub mod minio;
 pub mod telegram_files;
 
 use chrono::Duration;
+use moka::future::Cache;
+use once_cell::sync::Lazy;
 use serde::Serialize;
+use teloxide::{
+    requests::Requester,
+    types::{ChatId, MessageId},
+};
 use tracing::log;
 
-use crate::{prisma::cached_file, views::Database};
+use crate::{
+    config::{self},
+    prisma::cached_file,
+    views::Database,
+};
 
 use self::{
     book_library::{get_book, get_books, types::BaseBook},
+    bots::ROUND_ROBIN_BOT,
     download_utils::{response_to_tempfile, DownloadResult},
     downloader::{download_from_downloader, get_filename, FilenameData},
     minio::upload_to_minio,
     telegram_files::{download_from_telegram_files, upload_to_telegram_files, UploadData},
 };
+
+#[derive(Serialize)]
+pub struct CacheData {
+    pub id: Option<i32>,
+    pub object_id: i32,
+    pub object_type: String,
+    pub message_id: i32,
+    pub chat_id: String,
+}
+
+pub static CHAT_DONATION_NOTIFICATIONS_CACHE: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
+    Cache::builder()
+        .time_to_idle(std::time::Duration::from_secs(16))
+        .max_capacity(4098)
+        .async_eviction_listener(|_data_id, message_id, _cause| {
+            Box::pin(async move {
+                let bot = ROUND_ROBIN_BOT.get_bot();
+                let _ = bot
+                    .delete_message(config::CONFIG.temp_channel_username.to_string(), message_id)
+                    .await;
+            })
+        })
+        .build()
+});
 
 pub async fn get_cached_file_or_cache(
     object_id: i32,
@@ -36,6 +72,53 @@ pub async fn get_cached_file_or_cache(
     match cached_file {
         Some(cached_file) => Some(cached_file),
         None => cache_file(object_id, object_type, db).await,
+    }
+}
+
+pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> CacheData {
+    let bot = ROUND_ROBIN_BOT.get_bot();
+
+    let message_id = match bot
+        .copy_message(
+            config::CONFIG.temp_channel_username.to_string(),
+            ChatId(original.chat_id),
+            MessageId(original.message_id.try_into().unwrap()),
+        )
+        .await
+    {
+        Ok(v) => v,
+        Err(_) => {
+            let _ = db
+                .cached_file()
+                .delete(cached_file::id::equals(original.id))
+                .exec()
+                .await;
+
+            let new_original =
+                get_cached_file_or_cache(original.object_id, original.object_type.clone(), db)
+                    .await
+                    .unwrap();
+
+            bot.copy_message(
+                config::CONFIG.temp_channel_username.to_string(),
+                ChatId(new_original.chat_id),
+                MessageId(new_original.message_id.try_into().unwrap()),
+            )
+            .await
+            .unwrap()
+        }
+    };
+
+    CHAT_DONATION_NOTIFICATIONS_CACHE
+        .insert(original.id, message_id)
+        .await;
+
+    CacheData {
+        id: None,
+        object_id: original.object_id,
+        object_type: original.object_type,
+        message_id: message_id.0,
+        chat_id: config::CONFIG.temp_channel_username.to_string(),
     }
 }
 
