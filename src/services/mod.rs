@@ -81,7 +81,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
     let message_id = match bot
         .copy_message(
             config::CONFIG.temp_channel_username.to_string(),
-            ChatId(original.chat_id),
+            Recipient::Id(ChatId(original.chat_id)),
             MessageId(original.message_id.try_into().unwrap()),
         )
         .await
