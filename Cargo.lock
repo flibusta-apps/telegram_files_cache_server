@@ -3859,6 +3859,7 @@ dependencies = [
  "base64 0.22.0",
  "bytes",
  "chrono",
+ "dotenv",
  "futures",
  "futures-core",
  "minio-rsc",

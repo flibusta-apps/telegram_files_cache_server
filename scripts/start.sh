@@ -1,5 +1,5 @@
 #! /usr/bin/env sh
 
-export $(/env.sh)
+/env.sh > ./.env
 
 exec /usr/local/bin/telegram_files_cache_server

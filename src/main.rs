@@ -4,6 +4,7 @@ pub mod prisma;
 pub mod services;
 pub mod views;
 
+use dotenv::dotenv;
 use sentry::{integrations::debug_images::DebugImagesIntegration, types::Dsn, ClientOptions};
 use std::{net::SocketAddr, str::FromStr};
 use tracing::info;
@@ -12,6 +13,8 @@ use crate::views::get_router;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
     let options = ClientOptions {
         dsn: Some(Dsn::from_str(&config::CONFIG.sentry_dsn).unwrap()),
         default_integrations: false,
