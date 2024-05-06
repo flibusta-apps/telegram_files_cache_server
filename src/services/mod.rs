@@ -39,7 +39,7 @@ pub struct CacheData {
     pub chat_id: i64,
 }
 
-pub static CHAT_DONATION_NOTIFICATIONS_CACHE: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
+pub static TEMP_MESSAGES: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
     Cache::builder()
         .time_to_idle(std::time::Duration::from_secs(16))
         .max_capacity(4098)
@@ -112,9 +112,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
         }
     };
 
-    CHAT_DONATION_NOTIFICATIONS_CACHE
-        .insert(original.id, message_id)
-        .await;
+    TEMP_MESSAGES.insert(original.id, message_id).await;
 
     CacheData {
         id: None,
