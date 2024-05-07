@@ -2,7 +2,6 @@ pub mod book_library;
 pub mod bots;
 pub mod download_utils;
 pub mod downloader;
-pub mod minio;
 pub mod telegram_files;
 
 use chrono::Duration;
@@ -24,9 +23,8 @@ use crate::{
 use self::{
     book_library::{get_book, get_books, types::BaseBook},
     bots::ROUND_ROBIN_BOT,
-    download_utils::{response_to_tempfile, DownloadResult},
+    download_utils::DownloadResult,
     downloader::{download_from_downloader, get_filename, FilenameData},
-    minio::upload_to_minio,
     telegram_files::{download_from_telegram_files, upload_to_telegram_files, UploadData},
 };
 
@@ -235,46 +233,6 @@ pub struct FileLinkResult {
     pub filename: String,
     pub filename_ascii: String,
     pub caption: String,
-}
-
-pub async fn get_download_link(
-    object_id: i32,
-    object_type: String,
-    db: Database,
-) -> Result<Option<FileLinkResult>, Box<dyn std::error::Error + Send + Sync>> {
-    let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
-        Some(v) => v,
-        None => return Ok(None),
-    };
-
-    let data = match download_from_cache(cached_file, db).await {
-        Some(v) => v,
-        None => return Ok(None),
-    };
-
-    let DownloadResult {
-        mut response,
-        filename,
-        filename_ascii,
-        caption,
-    } = data;
-
-    let tempfile = match response_to_tempfile(&mut response).await {
-        Some(v) => v.0,
-        None => return Ok(None),
-    };
-
-    let link = match upload_to_minio(tempfile, filename.clone()).await {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    Ok(Some(FileLinkResult {
-        link,
-        filename,
-        filename_ascii,
-        caption,
-    }))
 }
 
 pub async fn get_books_for_update(
