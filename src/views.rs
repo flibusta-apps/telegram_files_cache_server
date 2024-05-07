@@ -41,7 +41,7 @@ async fn get_cached_file(
 ) -> impl IntoResponse {
     let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
         Some(cached_file) => cached_file,
-        None => return StatusCode::NOT_FOUND.into_response(),
+        None => return StatusCode::NO_CONTENT.into_response(),
     };
 
     if !copy {
@@ -131,7 +131,7 @@ async fn delete_cached_file(
 
             Json(v).into_response()
         }
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
     }
 }
 
