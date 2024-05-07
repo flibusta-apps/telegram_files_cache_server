@@ -28,7 +28,7 @@ pub async fn download_from_downloader(
     source_id: u32,
     remote_id: u32,
     object_type: String,
-) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<Response>, Box<dyn std::error::Error + Send + Sync>> {
     let url = format!(
         "{}/download/{source_id}/{remote_id}/{object_type}",
         CONFIG.downloader_url
@@ -42,12 +42,10 @@ pub async fn download_from_downloader(
         .error_for_status()?;
 
     if response.status() == StatusCode::NO_CONTENT {
-        return Err(Box::new(DownloadError {
-            status_code: StatusCode::NO_CONTENT,
-        }));
+        return Ok(None);
     };
 
-    Ok(response)
+    Ok(Some(response))
 }
 
 pub async fn get_filename(

@@ -138,7 +138,10 @@ pub async fn cache_file(
 
     let downloader_result =
         match download_from_downloader(book.source.id, book.remote_id, object_type.clone()).await {
-            Ok(v) => v,
+            Ok(v) => match v {
+                Some(v) => v,
+                None => return None,
+            },
             Err(err) => {
                 log::error!("{:?}", err);
                 return None;
