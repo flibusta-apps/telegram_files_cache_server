@@ -42,10 +42,10 @@ pub async fn response_to_tempfile(res: &mut Response) -> Option<(SpooledTempFile
 
             data_size += data.len();
 
-            match tmp_file.write(data.chunk()) {
-                Ok(_) => (),
+            match tmp_file.write_all(data.chunk()) {
+                Ok(_) => {}
                 Err(_) => return None,
-            }
+            };
         }
 
         tmp_file.seek(SeekFrom::Start(0)).unwrap();

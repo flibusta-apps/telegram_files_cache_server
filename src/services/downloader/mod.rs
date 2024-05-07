@@ -1,5 +1,3 @@
-use std::fmt;
-
 use reqwest::{Response, StatusCode};
 use serde::Deserialize;
 
@@ -10,19 +8,6 @@ pub struct FilenameData {
     pub filename: String,
     pub filename_ascii: String,
 }
-
-#[derive(Debug, Clone)]
-struct DownloadError {
-    status_code: StatusCode,
-}
-
-impl fmt::Display for DownloadError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Status code is {0}", self.status_code)
-    }
-}
-
-impl std::error::Error for DownloadError {}
 
 pub async fn download_from_downloader(
     source_id: u32,
