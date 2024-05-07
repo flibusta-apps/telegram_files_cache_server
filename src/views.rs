@@ -13,7 +13,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio_util::io::ReaderStream;
 use tower_http::trace::{self, TraceLayer};
-use tracing::{log, Level};
+use tracing::Level;
 
 use crate::{
     config::CONFIG,
@@ -21,7 +21,7 @@ use crate::{
     prisma::{cached_file, PrismaClient},
     services::{
         download_from_cache, download_utils::get_response_async_read, get_cached_file_copy,
-        get_cached_file_or_cache, get_download_link, start_update_cache, CacheData,
+        get_cached_file_or_cache, start_update_cache, CacheData,
     },
 };
 
@@ -107,22 +107,6 @@ async fn download_cached_file(
     (headers, body).into_response()
 }
 
-async fn get_link(
-    Path((object_id, object_type)): Path<(i32, String)>,
-    Extension(Ext { db, .. }): Extension<Ext>,
-) -> impl IntoResponse {
-    match get_download_link(object_id, object_type.clone(), db.clone()).await {
-        Ok(data) => match data {
-            Some(data) => Json(data).into_response(),
-            None => StatusCode::NO_CONTENT.into_response(),
-        },
-        Err(err) => {
-            log::error!("{:?}", err);
-            StatusCode::NO_CONTENT.into_response()
-        }
-    }
-}
-
 async fn delete_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
     Extension(Ext { db, .. }): Extension<Ext>,
@@ -196,7 +180,6 @@ pub async fn get_router() -> Router {
             "/download/:object_id/:object_type/",
             get(download_cached_file),
         )
-        .route("/link/:object_id/:object_type/", get(get_link))
         .route("/:object_id/:object_type/", delete(delete_cached_file))
         .route("/update_cache", post(update_cache))
         .layer(middleware::from_fn(auth))
