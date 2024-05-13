@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose, Engine};
+use once_cell::sync::Lazy;
 use reqwest::{
     header,
     multipart::{Form, Part},
@@ -7,6 +8,8 @@ use reqwest::{
 use serde::Deserialize;
 
 use crate::config::CONFIG;
+
+pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
 #[derive(Deserialize)]
 pub struct UploadData {
@@ -29,7 +32,7 @@ pub async fn download_from_telegram_files(
         CONFIG.files_url
     );
 
-    let response = reqwest::Client::new()
+    let response = CLIENT
         .get(url)
         .header("Authorization", CONFIG.files_api_key.clone())
         .send()
@@ -72,7 +75,7 @@ pub async fn upload_to_telegram_files(
         .text("filename", filename)
         .part("file", part);
 
-    let response = reqwest::Client::new()
+    let response = CLIENT
         .post(url)
         .header("Authorization", CONFIG.files_api_key.clone())
         .multipart(form)

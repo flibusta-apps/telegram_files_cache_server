@@ -1,7 +1,10 @@
+use once_cell::sync::Lazy;
 use reqwest::{Response, StatusCode};
 use serde::Deserialize;
 
 use crate::config::CONFIG;
+
+pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
 #[derive(Deserialize)]
 pub struct FilenameData {
@@ -19,7 +22,7 @@ pub async fn download_from_downloader(
         CONFIG.downloader_url
     );
 
-    let response = reqwest::Client::new()
+    let response = CLIENT
         .get(url)
         .header("Authorization", &CONFIG.downloader_api_key)
         .send()
@@ -42,7 +45,7 @@ pub async fn get_filename(
         CONFIG.downloader_url
     );
 
-    let response = reqwest::Client::new()
+    let response = CLIENT
         .get(url)
         .header("Authorization", &CONFIG.downloader_api_key)
         .send()
