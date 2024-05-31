@@ -181,7 +181,22 @@ pub async fn download_from_cache(
     let book_task = tokio::task::spawn(get_book(cached_data.object_id));
 
     let response = match response_task.await.unwrap() {
-        Ok(v) => v,
+        Ok(v) => {
+            if v.status() != 200 {
+                db.cached_file()
+                    .delete(cached_file::object_id_object_type(
+                        cached_data.object_id,
+                        cached_data.object_type.clone(),
+                    ))
+                    .exec()
+                    .await
+                    .unwrap();
+
+                return None;
+            }
+
+            v
+        }
         Err(err) => {
             db.cached_file()
                 .delete(cached_file::object_id_object_type(
