@@ -14,11 +14,7 @@ use teloxide::{
 };
 use tracing::log;
 
-use crate::{
-    config::{self},
-    prisma::cached_file,
-    views::Database,
-};
+use crate::{config, prisma::cached_file, repository::CachedFileRepository, views::Database};
 
 use self::{
     book_library::{get_book, get_books, types::BaseBook},
@@ -183,14 +179,14 @@ pub async fn download_from_cache(
     let response = match response_task.await.unwrap() {
         Ok(v) => {
             if v.status() != 200 {
-                db.cached_file()
-                    .delete(cached_file::object_id_object_type(
+                let cached_file_repo = CachedFileRepository::new(db.clone());
+
+                let _ = cached_file_repo
+                    .delete_by_object_id_object_type(
                         cached_data.object_id,
                         cached_data.object_type.clone(),
-                    ))
-                    .exec()
-                    .await
-                    .unwrap();
+                    )
+                    .await;
 
                 return None;
             }
@@ -198,14 +194,14 @@ pub async fn download_from_cache(
             v
         }
         Err(err) => {
-            db.cached_file()
-                .delete(cached_file::object_id_object_type(
+            let cached_file_repo = CachedFileRepository::new(db.clone());
+
+            let _ = cached_file_repo
+                .delete_by_object_id_object_type(
                     cached_data.object_id,
                     cached_data.object_type.clone(),
-                ))
-                .exec()
-                .await
-                .unwrap();
+                )
+                .await;
 
             log::error!("{:?}", err);
             return None;
