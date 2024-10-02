@@ -5,7 +5,7 @@ pub mod repository;
 pub mod services;
 pub mod views;
 
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use sentry::{integrations::debug_images::DebugImagesIntegration, types::Dsn, ClientOptions};
 use sentry_tracing::EventFilter;
 use std::{net::SocketAddr, str::FromStr};
