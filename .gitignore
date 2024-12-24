@@ -3,6 +3,4 @@
 .vscode
 .env
 
-.sqlx
-
 .DS_Store

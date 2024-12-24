@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO cached_files (object_id, object_type, message_id, chat_id)\n            VALUES ($1, $2, $3, $4)\n            RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "object_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "object_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "message_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "chat_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Varchar",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4b5e4c89220adbe0b2eeaa63e59a9b025fd2e6eeda6b1fdcec9544e8623fb19c"
+}

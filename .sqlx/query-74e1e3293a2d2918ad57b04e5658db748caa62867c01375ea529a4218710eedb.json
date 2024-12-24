@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM cached_files\n            WHERE object_id = $1 AND object_type = $2\n            RETURNING *\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "object_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "object_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "message_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "chat_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "74e1e3293a2d2918ad57b04e5658db748caa62867c01375ea529a4218710eedb"
+}
