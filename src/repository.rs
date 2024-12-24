@@ -1,6 +1,4 @@
-use prisma_client_rust::QueryError;
-
-use crate::{prisma::cached_file, views::Database};
+use crate::{serializers::CachedFile, views::Database};
 
 pub struct CachedFileRepository {
     db: Database,
@@ -15,11 +13,18 @@ impl CachedFileRepository {
         &self,
         object_id: i32,
         object_type: String,
-    ) -> Result<cached_file::Data, QueryError> {
-        self.db
-            .cached_file()
-            .delete(cached_file::object_id_object_type(object_id, object_type))
-            .exec()
-            .await
+    ) -> Result<CachedFile, sqlx::Error> {
+        sqlx::query_as!(
+            CachedFile,
+            r#"
+            DELETE FROM cached_files
+            WHERE object_id = $1 AND object_type = $2
+            RETURNING *
+            "#,
+            object_id,
+            object_type
+        )
+        .fetch_one(&self.db)
+        .await
     }
 }

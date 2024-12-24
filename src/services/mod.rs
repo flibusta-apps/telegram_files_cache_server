@@ -14,7 +14,7 @@ use teloxide::{
 };
 use tracing::log;
 
-use crate::{config, prisma::cached_file, repository::CachedFileRepository, views::Database};
+use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
 
 use self::{
     book_library::{get_book, get_books, types::BaseBook},
@@ -55,16 +55,18 @@ pub async fn get_cached_file_or_cache(
     object_id: i32,
     object_type: String,
     db: Database,
-) -> Option<cached_file::Data> {
-    let cached_file = db
-        .cached_file()
-        .find_unique(cached_file::object_id_object_type(
-            object_id,
-            object_type.clone(),
-        ))
-        .exec()
-        .await
-        .unwrap();
+) -> Option<CachedFile> {
+    let cached_file = sqlx::query_as!(
+        CachedFile,
+        r#"
+        SELECT * FROM cached_files
+        WHERE object_id = $1 AND object_type = $2"#,
+        object_id,
+        object_type
+    )
+    .fetch_optional(&db)
+    .await
+    .unwrap();
 
     match cached_file {
         Some(cached_file) => Some(cached_file),
@@ -72,7 +74,7 @@ pub async fn get_cached_file_or_cache(
     }
 }
 
-pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> CacheData {
+pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheData {
     let bot = ROUND_ROBIN_BOT.get_bot();
 
     let message_id = match bot
@@ -85,11 +87,16 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
     {
         Ok(v) => v,
         Err(_) => {
-            let _ = db
-                .cached_file()
-                .delete(cached_file::id::equals(original.id))
-                .exec()
-                .await;
+            sqlx::query!(
+                r#"
+                DELETE FROM cached_files
+                WHERE id = $1
+                "#,
+                original.id
+            )
+            .execute(&db)
+            .await
+            .unwrap();
 
             let new_original =
                 get_cached_file_or_cache(original.object_id, original.object_type.clone(), db)
@@ -117,11 +124,7 @@ pub async fn get_cached_file_copy(original: cached_file::Data, db: Database) -> 
     }
 }
 
-pub async fn cache_file(
-    object_id: i32,
-    object_type: String,
-    db: Database,
-) -> Option<cached_file::Data> {
+pub async fn cache_file(object_id: i32, object_type: String, db: Database) -> Option<CachedFile> {
     let book = match get_book(object_id).await {
         Ok(v) => v,
         Err(err) => {
@@ -154,18 +157,23 @@ pub async fn cache_file(
     };
 
     Some(
-        db.cached_file()
-            .create(object_id, object_type, message_id, chat_id, vec![])
-            .exec()
-            .await
-            .unwrap(),
+        sqlx::query_as!(
+            CachedFile,
+            r#"INSERT INTO cached_files (object_id, object_type, message_id, chat_id)
+            VALUES ($1, $2, $3, $4)
+            RETURNING *"#,
+            object_id,
+            object_type,
+            message_id,
+            chat_id
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
     )
 }
 
-pub async fn download_from_cache(
-    cached_data: cached_file::Data,
-    db: Database,
-) -> Option<DownloadResult> {
+pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Option<DownloadResult> {
     let response_task = tokio::task::spawn(download_from_telegram_files(
         cached_data.message_id,
         cached_data.chat_id,
@@ -300,14 +308,14 @@ pub async fn start_update_cache(db: Database) {
 
     for book in books {
         'types: for available_type in book.available_types {
-            let cached_file = match db
-                .cached_file()
-                .find_unique(cached_file::object_id_object_type(
-                    book.id,
-                    available_type.clone(),
-                ))
-                .exec()
-                .await
+            let cached_file = match sqlx::query_as!(
+                CachedFile,
+                r#"SELECT * FROM cached_files WHERE object_id = $1 AND object_type = $2"#,
+                book.id,
+                available_type.clone()
+            )
+            .fetch_optional(&db)
+            .await
             {
                 Ok(v) => v,
                 Err(err) => {

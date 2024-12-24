@@ -9,27 +9,26 @@ use axum::{
 };
 use axum_prometheus::PrometheusMetricLayer;
 use base64::{engine::general_purpose, Engine};
-use serde::Deserialize;
-use std::sync::Arc;
+use sqlx::PgPool;
 use tokio_util::io::ReaderStream;
 use tower_http::trace::{self, TraceLayer};
 use tracing::Level;
 
 use crate::{
     config::CONFIG,
-    db::get_prisma_client,
-    prisma::{cached_file, PrismaClient},
+    db::get_pg_pool,
+    serializers::CachedFile,
     services::{
         download_from_cache, download_utils::get_response_async_read, get_cached_file_copy,
         get_cached_file_or_cache, start_update_cache, CacheData,
     },
 };
 
-pub type Database = Arc<PrismaClient>;
+pub type Database = PgPool;
 
 //
 
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 pub struct GetCachedFileQuery {
     pub copy: bool,
 }
@@ -111,26 +110,20 @@ async fn delete_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
-    let cached_file = db
-        .cached_file()
-        .find_unique(cached_file::object_id_object_type(
-            object_id,
-            object_type.clone(),
-        ))
-        .exec()
-        .await
-        .unwrap();
+    let cached_file: Option<CachedFile> = sqlx::query_as!(
+        CachedFile,
+        r#"DELETE FROM cached_files
+            WHERE object_id = $1 AND object_type = $2
+            RETURNING *"#,
+        object_id,
+        object_type
+    )
+    .fetch_optional(&db)
+    .await
+    .unwrap();
 
     match cached_file {
-        Some(v) => {
-            db.cached_file()
-                .delete(cached_file::object_id_object_type(object_id, object_type))
-                .exec()
-                .await
-                .unwrap();
-
-            Json(v).into_response()
-        }
+        Some(v) => Json::<CachedFile>(v).into_response(),
         None => StatusCode::NO_CONTENT.into_response(),
     }
 }
@@ -164,11 +157,11 @@ async fn auth(req: Request<axum::body::Body>, next: Next) -> Result<Response, St
 
 #[derive(Clone)]
 struct Ext {
-    pub db: Arc<PrismaClient>,
+    pub db: PgPool,
 }
 
 pub async fn get_router() -> Router {
-    let db = Arc::new(get_prisma_client().await);
+    let db = get_pg_pool().await;
 
     let ext = Ext { db };
 

@@ -1,7 +1,7 @@
 pub mod config;
 pub mod db;
-pub mod prisma;
 pub mod repository;
+pub mod serializers;
 pub mod services;
 pub mod views;
 
