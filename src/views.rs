@@ -184,7 +184,7 @@ pub async fn get_router() -> Router {
 
     Router::new()
         .nest("/api/v1/", app_router)
-        .nest("/", metric_router)
+        .merge(metric_router)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
