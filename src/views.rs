@@ -168,12 +168,12 @@ pub async fn get_router() -> Router {
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
 
     let app_router = Router::new()
-        .route("/:object_id/:object_type/", get(get_cached_file))
+        .route("/{object_id}/{object_type}/", get(get_cached_file))
         .route(
-            "/download/:object_id/:object_type/",
+            "/download/{object_id}/{object_type}/",
             get(download_cached_file),
         )
-        .route("/:object_id/:object_type/", delete(delete_cached_file))
+        .route("/{object_id}/{object_type}/", delete(delete_cached_file))
         .route("/update_cache", post(update_cache))
         .layer(middleware::from_fn(auth))
         .layer(Extension(ext))
