@@ -134,6 +134,10 @@ async fn update_cache(Extension(Ext { db, .. }): Extension<Ext>) -> impl IntoRes
     StatusCode::OK.into_response()
 }
 
+async fn health_check() -> impl IntoResponse {
+    StatusCode::OK.into_response()
+}
+
 //
 
 async fn auth(req: Request<axum::body::Body>, next: Next) -> Result<Response, StatusCode> {
@@ -176,15 +180,18 @@ pub async fn get_router() -> Router {
         .route("/{object_id}/{object_type}/", delete(delete_cached_file))
         .route("/update_cache", post(update_cache))
         .layer(middleware::from_fn(auth))
-        .layer(Extension(ext))
+        .layer(Extension(ext.clone()))
         .layer(prometheus_layer);
 
     let metric_router =
         Router::new().route("/metrics", get(|| async move { metric_handle.render() }));
 
+    let health_router = Router::new().route("/health", get(health_check));
+
     Router::new()
         .nest("/api/v1/", app_router)
         .merge(metric_router)
+        .merge(health_router)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
