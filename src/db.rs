@@ -19,3 +19,7 @@ pub async fn get_pg_pool() -> PgPool {
         .await
         .unwrap()
 }
+
+pub async fn run_migrations(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
+    sqlx::migrate!("./migrations").run(pool).await
+}

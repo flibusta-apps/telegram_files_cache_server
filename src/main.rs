@@ -12,7 +12,7 @@ use std::{net::SocketAddr, str::FromStr};
 use tracing::info;
 use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::views::get_router;
+use crate::{db::run_migrations, views::get_router};
 
 #[tokio::main]
 async fn main() {
@@ -39,6 +39,16 @@ async fn main() {
         .init();
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+
+    // Get database pool
+    let pool = db::get_pg_pool().await;
+
+    // Run migrations
+    info!("Running database migrations...");
+    run_migrations(&pool)
+        .await
+        .expect("Failed to run database migrations");
+    info!("Database migrations completed successfully");
 
     let app = get_router().await;
 
