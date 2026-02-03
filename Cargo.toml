@@ -48,7 +48,7 @@ futures-core = "0.3.31"
 async-stream = "0.3.6"
 
 tempfile = "3.19.1"
-bytes = "1.10.1"
+bytes = "1.11.1"
 
 teloxide = { version = "0.17.0", features = ["macros", "webhooks-axum", "cache-me", "throttle"] }
 
