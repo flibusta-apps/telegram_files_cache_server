@@ -5,6 +5,7 @@ use serde::de::DeserializeOwned;
 use tracing::log;
 
 use crate::config::CONFIG;
+use crate::services::retry::retry_transient;
 
 use self::types::{BaseBook, Page};
 
@@ -17,38 +18,44 @@ async fn _make_request<T>(
 where
     T: DeserializeOwned,
 {
-    let formated_url = format!("{}{}", CONFIG.library_url, url);
+    let url_owned = url.to_string();
+    retry_transient(|| {
+        let url = url_owned.clone();
+        let params = params.clone();
+        async move {
+            let formated_url = format!("{}{}", CONFIG.library_url, url);
 
-    let response = CLIENT
-        .get(formated_url)
-        .query(&params)
-        .header("Authorization", CONFIG.library_api_key.clone())
-        .send()
-        .await;
+            let response = CLIENT
+                .get(&formated_url)
+                .query(&params)
+                .header("Authorization", CONFIG.library_api_key.clone())
+                .send()
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-    let response = match response {
-        Ok(v) => v,
-        Err(err) => return Err(Box::new(err)),
-    };
+            let response = response
+                .error_for_status()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-    let response = match response.error_for_status() {
-        Ok(v) => v,
-        Err(err) => return Err(Box::new(err)),
-    };
-
-    let text = response.text().await?;
-    match serde_json::from_str::<T>(&text) {
-        Ok(v) => Ok(v),
-        Err(err) => {
-            log::error!(
-                "Failed to decode {} from library: {}. Response body: {:?}",
-                std::any::type_name::<T>(),
-                err,
-                text
-            );
-            Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+            let text = response
+                .text()
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            match serde_json::from_str::<T>(&text) {
+                Ok(v) => Ok(v),
+                Err(err) => {
+                    log::error!(
+                        "Failed to decode {} from library: {}. Response body: {:?}",
+                        std::any::type_name::<T>(),
+                        err,
+                        text
+                    );
+                    Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+                }
+            }
         }
-    }
+    })
+    .await
 }
 
 pub async fn get_sources() -> Result<types::Source, Box<dyn std::error::Error + Send + Sync>> {

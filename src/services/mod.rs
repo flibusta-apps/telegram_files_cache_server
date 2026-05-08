@@ -2,6 +2,7 @@ pub mod book_library;
 pub mod bots;
 pub mod download_utils;
 pub mod downloader;
+pub mod retry;
 pub mod telegram_files;
 
 use chrono::Duration;
