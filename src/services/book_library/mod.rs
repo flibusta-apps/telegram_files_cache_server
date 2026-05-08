@@ -2,6 +2,7 @@ pub mod types;
 
 use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
+use tracing::log;
 
 use crate::config::CONFIG;
 
@@ -35,9 +36,18 @@ where
         Err(err) => return Err(Box::new(err)),
     };
 
-    match response.json::<T>().await {
+    let text = response.text().await?;
+    match serde_json::from_str::<T>(&text) {
         Ok(v) => Ok(v),
-        Err(err) => Err(Box::new(err)),
+        Err(err) => {
+            log::error!(
+                "Failed to decode {} from library: {}. Response body: {:?}",
+                std::any::type_name::<T>(),
+                err,
+                text
+            );
+            Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+        }
     }
 }
 

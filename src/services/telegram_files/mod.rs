@@ -6,6 +6,7 @@ use reqwest::{
     Response,
 };
 use serde::Deserialize;
+use tracing::log;
 
 use crate::config::CONFIG;
 
@@ -83,8 +84,16 @@ pub async fn upload_to_telegram_files(
         .await?
         .error_for_status()?;
 
-    match response.json::<UploadResult>().await {
+    let text = response.text().await?;
+    match serde_json::from_str::<UploadResult>(&text) {
         Ok(v) => Ok(v.data),
-        Err(err) => Err(Box::new(err)),
+        Err(err) => {
+            log::error!(
+                "Failed to decode UploadResult from files server: {}. Response body: {:?}",
+                err,
+                text
+            );
+            Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+        }
     }
 }

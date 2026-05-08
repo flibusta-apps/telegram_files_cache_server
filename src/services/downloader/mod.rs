@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 use reqwest::{Response, StatusCode};
 use serde::Deserialize;
+use tracing::log;
 
 use crate::config::CONFIG;
 
@@ -52,8 +53,16 @@ pub async fn get_filename(
         .await?
         .error_for_status()?;
 
-    match response.json::<FilenameData>().await {
+    let text = response.text().await?;
+    match serde_json::from_str::<FilenameData>(&text) {
         Ok(v) => Ok(v),
-        Err(err) => Err(Box::new(err)),
+        Err(err) => {
+            log::error!(
+                "Failed to decode FilenameData from downloader: {}. Response body: {:?}",
+                err,
+                text
+            );
+            Err(Box::new(err) as Box<dyn std::error::Error + Send + Sync>)
+        }
     }
 }
