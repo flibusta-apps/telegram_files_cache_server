@@ -1,7 +1,17 @@
 #! /usr/bin/env sh
 
-response=`curl -X 'GET' "https://$VAULT_HOST/v1/$VAULT_SECRET_PATH" -s \
-  -H 'accept: application/json' \
-  -H "X-Vault-Token: $VAULT_TOKEN"`
+# Print all relevant env vars in KEY='VALUE' format for .env generation.
+# Variables must be set externally (Docker env, docker-compose, CI secrets, etc.)
 
-echo "$(echo "$response" | jq -r '.data.data | to_entries | map("\(.key)='\''\(.value)'\''") | .[]')"
+for var in API_KEY \
+           POSTGRES_USER POSTGRES_PASSWORD POSTGRES_HOST POSTGRES_PORT POSTGRES_DB \
+           DOWNLOADER_API_KEY DOWNLOADER_URL \
+           LIBRARY_API_KEY LIBRARY_URL \
+           FILES_SERVER_API_KEY FILES_SERVER_URL \
+           BOT_TOKENS TEMP_CHANNEL_ID \
+           SENTRY_DSN; do
+  val=$(eval echo "\"\$$var\"")
+  if [ -n "$val" ]; then
+    echo "$var='$val'"
+  fi
+done

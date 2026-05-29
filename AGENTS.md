@@ -59,4 +59,4 @@ Run automatically on startup via `sqlx::migrate!("./migrations")`. Migrations li
 
 - Dockerfile: `docker/production.dockerfile` (multi-stage, builds release binary).
 - CI pushes to `ghcr.io` on main push, then triggers deploy via webhook.
-- Production env vars are injected via Vault (`scripts/env.sh` → `.env`).
+- Production env vars are injected directly (Docker env, docker-compose, CI secrets). `scripts/env.sh` → `.env`.
