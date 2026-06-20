@@ -3,6 +3,7 @@ pub struct CachedFile {
     pub id: i32,
     pub object_id: i32,
     pub object_type: String,
+    pub is_normalized: bool,
     pub message_id: i64,
     pub chat_id: i64,
 }

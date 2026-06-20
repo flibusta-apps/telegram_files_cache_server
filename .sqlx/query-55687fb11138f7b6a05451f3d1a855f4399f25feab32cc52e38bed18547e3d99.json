@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            DELETE FROM cached_files\n            WHERE object_id = $1 AND object_type = $2\n            RETURNING *\n            ",
+  "query": "DELETE FROM cached_files\n            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3\n            RETURNING *",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,18 @@
         "ordinal": 4,
         "name": "chat_id",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_normalized",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
         "Int4",
-        "Text"
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -40,8 +46,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "74e1e3293a2d2918ad57b04e5658db748caa62867c01375ea529a4218710eedb"
+  "hash": "55687fb11138f7b6a05451f3d1a855f4399f25feab32cc52e38bed18547e3d99"
 }

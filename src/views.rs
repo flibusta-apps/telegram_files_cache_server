@@ -31,17 +31,21 @@ pub type Database = PgPool;
 #[derive(serde::Deserialize)]
 pub struct GetCachedFileQuery {
     pub copy: bool,
+    #[serde(default)]
+    pub normalized: Option<bool>,
 }
 
 async fn get_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
-    Query(GetCachedFileQuery { copy }): Query<GetCachedFileQuery>,
+    Query(GetCachedFileQuery { copy, normalized }): Query<GetCachedFileQuery>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
-    let cached_file = match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
-        Some(cached_file) => cached_file,
-        None => return StatusCode::NO_CONTENT.into_response(),
-    };
+    let is_normalized = normalized.unwrap_or(true);
+    let cached_file =
+        match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone()).await {
+            Some(cached_file) => cached_file,
+            None => return StatusCode::NO_CONTENT.into_response(),
+        };
 
     if !copy {
         return Json(cached_file).into_response();
@@ -52,12 +56,22 @@ async fn get_cached_file(
     Json(copy_file).into_response()
 }
 
+#[derive(serde::Deserialize)]
+pub struct DownloadCachedFileQuery {
+    #[serde(default)]
+    pub normalized: Option<bool>,
+}
+
 async fn download_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
+    Query(DownloadCachedFileQuery { normalized }): Query<DownloadCachedFileQuery>,
     Extension(Ext { db }): Extension<Ext>,
 ) -> impl IntoResponse {
+    let is_normalized = normalized.unwrap_or(true);
     let cached_file =
-        match get_cached_file_or_cache(object_id, object_type.clone(), db.clone()).await {
+        match get_cached_file_or_cache(object_id, object_type.clone(), is_normalized, db.clone())
+            .await
+        {
             Some(cached_file) => cached_file,
             None => return StatusCode::NO_CONTENT.into_response(),
         };
@@ -66,7 +80,9 @@ async fn download_cached_file(
         Some(v) => v,
         None => {
             let cached_file =
-                match get_cached_file_or_cache(object_id, object_type, db.clone()).await {
+                match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone())
+                    .await
+                {
                     Some(v) => v,
                     None => return StatusCode::NO_CONTENT.into_response(),
                 };
@@ -106,17 +122,26 @@ async fn download_cached_file(
     (headers, body).into_response()
 }
 
+#[derive(serde::Deserialize)]
+pub struct DeleteCachedFileQuery {
+    #[serde(default)]
+    pub normalized: Option<bool>,
+}
+
 async fn delete_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
+    Query(DeleteCachedFileQuery { normalized }): Query<DeleteCachedFileQuery>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
+    let is_normalized = normalized.unwrap_or(true);
     let cached_file: Option<CachedFile> = sqlx::query_as!(
         CachedFile,
         r#"DELETE FROM cached_files
-            WHERE object_id = $1 AND object_type = $2
+            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3
             RETURNING *"#,
         object_id,
-        object_type
+        object_type,
+        is_normalized
     )
     .fetch_optional(&db)
     .await

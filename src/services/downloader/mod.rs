@@ -17,10 +17,11 @@ pub async fn download_from_downloader(
     source_id: u32,
     remote_id: u32,
     object_type: String,
+    is_normalized: bool,
 ) -> Result<Option<Response>, Box<dyn std::error::Error + Send + Sync>> {
     retry_transient(|| async {
         let url = format!(
-            "{}/download/{source_id}/{remote_id}/{object_type}",
+            "{}/download/{source_id}/{remote_id}/{object_type}?normalized={is_normalized}",
             CONFIG.downloader_url
         );
 
@@ -45,10 +46,11 @@ pub async fn download_from_downloader(
 pub async fn get_filename(
     object_id: i32,
     object_type: String,
+    is_normalized: bool,
 ) -> Result<FilenameData, Box<dyn std::error::Error + Send + Sync>> {
     retry_transient(|| async {
         let url = format!(
-            "{}/filename/{object_id}/{object_type}",
+            "{}/filename/{object_id}/{object_type}?normalized={is_normalized}",
             CONFIG.downloader_url
         );
 

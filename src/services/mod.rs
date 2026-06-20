@@ -55,15 +55,17 @@ pub static TEMP_MESSAGES: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
 pub async fn get_cached_file_or_cache(
     object_id: i32,
     object_type: String,
+    is_normalized: bool,
     db: Database,
 ) -> Option<CachedFile> {
     let cached_file = sqlx::query_as!(
         CachedFile,
         r#"
         SELECT * FROM cached_files
-        WHERE object_id = $1 AND object_type = $2"#,
+        WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3"#,
         object_id,
-        object_type
+        object_type,
+        is_normalized
     )
     .fetch_optional(&db)
     .await
@@ -71,7 +73,7 @@ pub async fn get_cached_file_or_cache(
 
     match cached_file {
         Some(cached_file) => Some(cached_file),
-        None => cache_file(object_id, object_type, db).await,
+        None => cache_file(object_id, object_type, is_normalized, db).await,
     }
 }
 
@@ -99,10 +101,14 @@ pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheDa
             .await
             .unwrap();
 
-            let new_original =
-                get_cached_file_or_cache(original.object_id, original.object_type.clone(), db)
-                    .await
-                    .unwrap();
+            let new_original = get_cached_file_or_cache(
+                original.object_id,
+                original.object_type.clone(),
+                original.is_normalized,
+                db,
+            )
+            .await
+            .unwrap();
 
             bot.copy_message(
                 Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
@@ -125,7 +131,12 @@ pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheDa
     }
 }
 
-pub async fn cache_file(object_id: i32, object_type: String, db: Database) -> Option<CachedFile> {
+pub async fn cache_file(
+    object_id: i32,
+    object_type: String,
+    is_normalized: bool,
+    db: Database,
+) -> Option<CachedFile> {
     let book = match get_book(object_id).await {
         Ok(v) => v,
         Err(err) => {
@@ -134,17 +145,23 @@ pub async fn cache_file(object_id: i32, object_type: String, db: Database) -> Op
         }
     };
 
-    let downloader_result =
-        match download_from_downloader(book.source.id, book.remote_id, object_type.clone()).await {
-            Ok(v) => match v {
-                Some(v) => v,
-                None => return None,
-            },
-            Err(err) => {
-                log::error!("{:?}", err);
-                return None;
-            }
-        };
+    let downloader_result = match download_from_downloader(
+        book.source.id,
+        book.remote_id,
+        object_type.clone(),
+        is_normalized,
+    )
+    .await
+    {
+        Ok(v) => match v {
+            Some(v) => v,
+            None => return None,
+        },
+        Err(err) => {
+            log::error!("{:?}", err);
+            return None;
+        }
+    };
 
     let UploadData {
         chat_id,
@@ -160,11 +177,12 @@ pub async fn cache_file(object_id: i32, object_type: String, db: Database) -> Op
     Some(
         sqlx::query_as!(
             CachedFile,
-            r#"INSERT INTO cached_files (object_id, object_type, message_id, chat_id)
-            VALUES ($1, $2, $3, $4)
+            r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *"#,
             object_id,
             object_type,
+            is_normalized,
             message_id,
             chat_id
         )
@@ -182,6 +200,7 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
     let filename_task = tokio::task::spawn(get_filename(
         cached_data.object_id,
         cached_data.object_type.clone(),
+        cached_data.is_normalized,
     ));
     let book_task = tokio::task::spawn(get_book(cached_data.object_id));
 
@@ -191,9 +210,10 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
                 let cached_file_repo = CachedFileRepository::new(db.clone());
 
                 let _ = cached_file_repo
-                    .delete_by_object_id_object_type(
+                    .delete_by_object_id_object_type_is_normalized(
                         cached_data.object_id,
                         cached_data.object_type.clone(),
+                        cached_data.is_normalized,
                     )
                     .await;
 
@@ -206,9 +226,10 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
             let cached_file_repo = CachedFileRepository::new(db.clone());
 
             let _ = cached_file_repo
-                .delete_by_object_id_object_type(
+                .delete_by_object_id_object_type_is_normalized(
                     cached_data.object_id,
                     cached_data.object_type.clone(),
+                    cached_data.is_normalized,
                 )
                 .await;
 
@@ -311,9 +332,11 @@ pub async fn start_update_cache(db: Database) {
         'types: for available_type in book.available_types {
             let cached_file = match sqlx::query_as!(
                 CachedFile,
-                r#"SELECT * FROM cached_files WHERE object_id = $1 AND object_type = $2"#,
+                r#"SELECT * FROM cached_files
+                   WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3"#,
                 book.id,
-                available_type.clone()
+                available_type.clone(),
+                true
             )
             .fetch_optional(&db)
             .await
@@ -329,7 +352,7 @@ pub async fn start_update_cache(db: Database) {
                 continue 'types;
             }
 
-            cache_file(book.id, available_type, db.clone()).await;
+            cache_file(book.id, available_type, true, db.clone()).await;
         }
     }
 }

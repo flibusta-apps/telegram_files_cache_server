@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT * FROM cached_files\n        WHERE object_id = $1 AND object_type = $2",
+  "query": "\n        SELECT * FROM cached_files\n        WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,18 @@
         "ordinal": 4,
         "name": "chat_id",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_normalized",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
         "Int4",
-        "Text"
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -40,8 +46,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "05a5407da8c215edb576d181e808c099685ff0a6bb10f1dfe554c7f9ecbaa557"
+  "hash": "b6c11efab788b38f5edd0f0ceb1dca89ee63286fbd555a171a2ec007f35e8143"
 }

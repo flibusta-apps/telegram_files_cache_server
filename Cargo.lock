@@ -3269,6 +3269,7 @@ dependencies = [
  "sentry-tracing",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sqlx",
  "teloxide",
  "tempfile",
