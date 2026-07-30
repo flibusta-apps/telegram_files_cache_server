@@ -36,7 +36,9 @@ impl Config {
             postgres_user: get_env("POSTGRES_USER"),
             postgres_password: get_env("POSTGRES_PASSWORD"),
             postgres_host: get_env("POSTGRES_HOST"),
-            postgres_port: get_env("POSTGRES_PORT").parse().unwrap(),
+            postgres_port: get_env("POSTGRES_PORT")
+                .parse()
+                .expect("POSTGRES_PORT must be a valid u32"),
             postgres_db: get_env("POSTGRES_DB"),
 
             downloader_api_key: get_env("DOWNLOADER_API_KEY"),
@@ -48,8 +50,11 @@ impl Config {
             files_api_key: get_env("FILES_SERVER_API_KEY"),
             files_url: get_env("FILES_SERVER_URL"),
 
-            bot_tokens: serde_json::from_str(&get_env("BOT_TOKENS")).unwrap(),
-            temp_channel_id: get_env("TEMP_CHANNEL_ID").parse().unwrap(),
+            bot_tokens: serde_json::from_str(&get_env("BOT_TOKENS"))
+                .expect("BOT_TOKENS must be a valid JSON array of strings"),
+            temp_channel_id: get_env("TEMP_CHANNEL_ID")
+                .parse()
+                .expect("TEMP_CHANNEL_ID must be a valid i64"),
 
             sentry_dsn: get_env("SENTRY_DSN"),
         }

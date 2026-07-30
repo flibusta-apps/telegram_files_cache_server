@@ -19,7 +19,10 @@ async fn main() {
     dotenv().ok();
 
     let options = ClientOptions {
-        dsn: Some(Dsn::from_str(&config::CONFIG.sentry_dsn).unwrap()),
+        dsn: Some(
+            Dsn::from_str(&config::CONFIG.sentry_dsn)
+                .expect("SENTRY_DSN must be a valid Sentry DSN"),
+        ),
         default_integrations: false,
         ..Default::default()
     }
@@ -53,7 +56,9 @@ async fn main() {
     let app = get_router().await;
 
     info!("Start webserver...");
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind to 0.0.0.0:8080");
+    axum::serve(listener, app).await.expect("Webserver crashed");
     info!("Webserver shutdown...")
 }

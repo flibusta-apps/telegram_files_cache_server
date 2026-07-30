@@ -20,7 +20,7 @@ use crate::{
     services::{
         download_from_cache,
         download_utils::{build_download_headers, get_response_async_read},
-        get_cached_file_copy, get_cached_file_or_cache, start_update_cache, CacheData,
+        get_cached_file_copy, get_cached_file_or_cache, start_update_cache,
     },
 };
 
@@ -55,9 +55,13 @@ async fn get_cached_file(
         return Json(cached_file).into_response();
     }
 
-    let copy_file: CacheData = get_cached_file_copy(cached_file, db).await;
-
-    Json(copy_file).into_response()
+    match get_cached_file_copy(cached_file, db).await {
+        Ok(copy_file) => Json(copy_file).into_response(),
+        Err(err) => {
+            tracing::log::error!("{:?}", err);
+            StatusCode::BAD_GATEWAY.into_response()
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -146,7 +150,7 @@ async fn delete_cached_file(
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
     let is_normalized = normalized.unwrap_or(true);
-    let cached_file: Option<CachedFile> = sqlx::query_as!(
+    let cached_file: Option<CachedFile> = match sqlx::query_as!(
         CachedFile,
         r#"DELETE FROM cached_files
             WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3
@@ -157,7 +161,13 @@ async fn delete_cached_file(
     )
     .fetch_optional(&db)
     .await
-    .unwrap();
+    {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::log::error!("{:?}", err);
+            return StatusCode::BAD_GATEWAY.into_response();
+        }
+    };
 
     match cached_file {
         Some(v) => Json::<CachedFile>(v).into_response(),

@@ -68,8 +68,7 @@ pub async fn get_cached_file_or_cache(
         is_normalized
     )
     .fetch_optional(&db)
-    .await
-    .unwrap();
+    .await?;
 
     match cached_file {
         Some(cached_file) => Ok(Some(cached_file)),
@@ -77,14 +76,30 @@ pub async fn get_cached_file_or_cache(
     }
 }
 
-pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheData {
+pub async fn get_cached_file_copy(
+    original: CachedFile,
+    db: Database,
+) -> Result<CacheData, Box<dyn std::error::Error + Send + Sync>> {
     let bot = ROUND_ROBIN_BOT.get_bot();
+
+    let original_message_id: i32 = original.message_id.try_into().map_err(|err| {
+        log::error!(
+            "Invalid message_id {} for object_id {}: {:?}",
+            original.message_id,
+            original.object_id,
+            err
+        );
+        Box::new(std::io::Error::other(format!(
+            "invalid message_id {} for object_id {}",
+            original.message_id, original.object_id
+        ))) as Box<dyn std::error::Error + Send + Sync>
+    })?;
 
     let message_id = match bot
         .copy_message(
             Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
             Recipient::Id(ChatId(original.chat_id)),
-            MessageId(original.message_id.try_into().unwrap()),
+            MessageId(original_message_id),
         )
         .await
     {
@@ -98,38 +113,57 @@ pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheDa
                 original.id
             )
             .execute(&db)
-            .await
-            .unwrap();
+            .await?;
 
-            let new_original = get_cached_file_or_cache(
+            let new_original = match get_cached_file_or_cache(
                 original.object_id,
                 original.object_type.clone(),
                 original.is_normalized,
                 db,
             )
-            .await
-            .unwrap()
-            .unwrap();
+            .await?
+            {
+                Some(v) => v,
+                None => {
+                    let err = std::io::Error::other(
+                        "failed to re-cache file for copy: upstream returned no file",
+                    );
+                    log::error!("{:?}", err);
+                    return Err(Box::new(err));
+                }
+            };
+
+            let new_message_id: i32 = new_original.message_id.try_into().map_err(|err| {
+                log::error!(
+                    "Invalid message_id {} for object_id {}: {:?}",
+                    new_original.message_id,
+                    new_original.object_id,
+                    err
+                );
+                Box::new(std::io::Error::other(format!(
+                    "invalid message_id {} for object_id {}",
+                    new_original.message_id, new_original.object_id
+                ))) as Box<dyn std::error::Error + Send + Sync>
+            })?;
 
             bot.copy_message(
                 Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
                 Recipient::Id(ChatId(new_original.chat_id)),
-                MessageId(new_original.message_id.try_into().unwrap()),
+                MessageId(new_message_id),
             )
-            .await
-            .unwrap()
+            .await?
         }
     };
 
     TEMP_MESSAGES.insert(original.id, message_id).await;
 
-    CacheData {
+    Ok(CacheData {
         id: None,
         object_id: original.object_id,
         object_type: original.object_type,
         message_id: message_id.0,
         chat_id: config::CONFIG.temp_channel_id,
-    }
+    })
 }
 
 pub async fn cache_file(
@@ -175,22 +209,21 @@ pub async fn cache_file(
         }
     };
 
-    Ok(Some(
-        sqlx::query_as!(
-            CachedFile,
-            r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING *"#,
-            object_id,
-            object_type,
-            is_normalized,
-            message_id,
-            chat_id
-        )
-        .fetch_one(&db)
-        .await
-        .unwrap(),
-    ))
+    let cached = sqlx::query_as!(
+        CachedFile,
+        r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *"#,
+        object_id,
+        object_type,
+        is_normalized,
+        message_id,
+        chat_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    Ok(Some(cached))
 }
 
 pub async fn download_from_cache(
@@ -208,7 +241,7 @@ pub async fn download_from_cache(
     ));
     let book_task = tokio::task::spawn(get_book(cached_data.object_id));
 
-    let response = match response_task.await.unwrap() {
+    let response = match response_task.await? {
         Ok(v) => {
             if v.status() != 200 {
                 let cached_file_repo = CachedFileRepository::new(db.clone());
@@ -242,7 +275,7 @@ pub async fn download_from_cache(
         }
     };
 
-    let filename_data = match filename_task.await.unwrap() {
+    let filename_data = match filename_task.await? {
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
@@ -250,7 +283,7 @@ pub async fn download_from_cache(
         }
     };
 
-    let book = match book_task.await.unwrap() {
+    let book = match book_task.await? {
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);

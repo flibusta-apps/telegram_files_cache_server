@@ -50,7 +50,9 @@ pub async fn response_to_tempfile(res: &mut Response) -> Option<(SpooledTempFile
             };
         }
 
-        tmp_file.seek(SeekFrom::Start(0)).unwrap();
+        if tmp_file.seek(SeekFrom::Start(0)).is_err() {
+            return None;
+        }
     }
 
     Some((tmp_file, data_size))
