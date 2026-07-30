@@ -3264,6 +3264,7 @@ dependencies = [
  "futures-core",
  "moka",
  "once_cell",
+ "rand 0.8.6",
  "reqwest",
  "sentry",
  "sentry-tracing",

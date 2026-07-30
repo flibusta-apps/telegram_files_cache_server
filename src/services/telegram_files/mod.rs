@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use base64::{engine::general_purpose, Engine};
 use once_cell::sync::Lazy;
 use reqwest::{
@@ -9,9 +11,14 @@ use serde::Deserialize;
 use tracing::log;
 
 use crate::config::CONFIG;
-use crate::services::retry::retry_transient;
+use crate::services::retry::{is_transient_error, retry_connect_only, retry_transient};
 
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
+pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .expect("failed to build telegram_files reqwest client")
+});
 
 #[derive(Deserialize)]
 pub struct UploadData {
@@ -28,8 +35,9 @@ pub struct UploadResult {
 pub async fn download_from_telegram_files(
     message_id: i64,
     chat_id: i64,
+    max_retries: u32,
 ) -> Result<Response, Box<dyn std::error::Error + Send + Sync>> {
-    retry_transient(|| async {
+    retry_transient(max_retries, || async {
         let url = format!(
             "{}/api/v1/files/download_by_message/{chat_id}/{message_id}",
             CONFIG.files_url
@@ -38,6 +46,7 @@ pub async fn download_from_telegram_files(
         let response = CLIENT
             .get(&url)
             .header("Authorization", CONFIG.files_api_key.clone())
+            .timeout(Duration::from_secs(120))
             .send()
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
@@ -52,6 +61,7 @@ pub async fn download_from_telegram_files(
 pub async fn upload_to_telegram_files(
     data_response: Response,
     caption: String,
+    max_retries: u32,
 ) -> Result<UploadData, Box<dyn std::error::Error + Send + Sync>> {
     // Extract data from Response before retry loop (Response can only be consumed once)
     let headers = data_response.headers().clone();
@@ -93,7 +103,7 @@ pub async fn upload_to_telegram_files(
     let caption_clone = caption.clone();
     let body_bytes_clone = body_bytes.clone();
 
-    retry_transient(move || {
+    let result = retry_connect_only(max_retries, move || {
         let body_bytes = body_bytes_clone.clone();
         let filename = filename_clone.clone();
         let file_size = file_size_clone.clone();
@@ -102,7 +112,7 @@ pub async fn upload_to_telegram_files(
         async move {
             let url = format!("{}/api/v1/files/upload/", CONFIG.files_url);
 
-            let part = Part::bytes(body_bytes.to_vec()).file_name(filename.clone());
+            let part = Part::stream(body_bytes.clone()).file_name(filename.clone());
 
             let form = Form::new()
                 .text("caption", caption)
@@ -137,5 +147,20 @@ pub async fn upload_to_telegram_files(
             }
         }
     })
-    .await
+    .await;
+
+    if let Err(err) = &result {
+        if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
+            if is_transient_error(reqwest_err) && !reqwest_err.is_connect() {
+                log::warn!(
+                    "Upload to files server failed with a non-connect transient error and was not retried \
+                     (to avoid duplicating a Telegram message if the first attempt actually succeeded \
+                     server-side): {}",
+                    reqwest_err
+                );
+            }
+        }
+    }
+
+    result
 }

@@ -8,6 +8,7 @@ pub mod telegram_files;
 use chrono::Duration;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
+use reqwest::StatusCode;
 use serde::Serialize;
 use teloxide::{
     requests::Requester,
@@ -22,6 +23,7 @@ use self::{
     bots::ROUND_ROBIN_BOT,
     download_utils::DownloadResult,
     downloader::{download_from_downloader, get_filename, FilenameData},
+    retry::{BACKGROUND_MAX_RETRIES, INTERACTIVE_MAX_RETRIES},
     telegram_files::{download_from_telegram_files, upload_to_telegram_files, UploadData},
 };
 
@@ -72,7 +74,16 @@ pub async fn get_cached_file_or_cache(
 
     match cached_file {
         Some(cached_file) => Ok(Some(cached_file)),
-        None => cache_file(object_id, object_type, is_normalized, db).await,
+        None => {
+            cache_file(
+                object_id,
+                object_type,
+                is_normalized,
+                db,
+                INTERACTIVE_MAX_RETRIES,
+            )
+            .await
+        }
     }
 }
 
@@ -171,8 +182,9 @@ pub async fn cache_file(
     object_type: String,
     is_normalized: bool,
     db: Database,
+    max_retries: u32,
 ) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
-    let book = match get_book(object_id).await {
+    let book = match get_book(object_id, max_retries).await {
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
@@ -185,6 +197,7 @@ pub async fn cache_file(
         book.remote_id,
         object_type.clone(),
         is_normalized,
+        max_retries,
     )
     .await
     {
@@ -201,7 +214,7 @@ pub async fn cache_file(
     let UploadData {
         chat_id,
         message_id,
-    } = match upload_to_telegram_files(downloader_result, book.get_caption()).await {
+    } = match upload_to_telegram_files(downloader_result, book.get_caption(), max_retries).await {
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
@@ -233,17 +246,45 @@ pub async fn download_from_cache(
     let response_task = tokio::task::spawn(download_from_telegram_files(
         cached_data.message_id,
         cached_data.chat_id,
+        INTERACTIVE_MAX_RETRIES,
     ));
     let filename_task = tokio::task::spawn(get_filename(
         cached_data.object_id,
         cached_data.object_type.clone(),
         cached_data.is_normalized,
+        INTERACTIVE_MAX_RETRIES,
     ));
-    let book_task = tokio::task::spawn(get_book(cached_data.object_id));
+    let book_task = tokio::task::spawn(get_book(cached_data.object_id, INTERACTIVE_MAX_RETRIES));
 
     let response = match response_task.await? {
-        Ok(v) => {
-            if v.status() != 200 {
+        Ok(v) => match v.status() {
+            StatusCode::OK => v,
+            StatusCode::NO_CONTENT => {
+                // Successful-but-empty response: not a "stale cache" signal, don't evict.
+                return Ok(None);
+            }
+            other => {
+                log::warn!(
+                    "Unexpected non-error status {} from telegram_files download for object_id {}; using response as-is",
+                    other,
+                    cached_data.object_id
+                );
+                v
+            }
+        },
+        Err(err) => {
+            // download_from_telegram_files already applies error_for_status(), so any
+            // status-based error here carries the real upstream status code. Only evict
+            // the cache row on a definitive "message no longer exists" answer (404/410).
+            // 5xx / timeouts / connect errors are transient and must not evict a valid cache entry.
+            let should_evict = err
+                .downcast_ref::<reqwest::Error>()
+                .and_then(|e| e.status())
+                .is_some_and(|status| {
+                    status == StatusCode::NOT_FOUND || status == StatusCode::GONE
+                });
+
+            if should_evict {
                 let cached_file_repo = CachedFileRepository::new(db.clone());
 
                 let _ = cached_file_repo
@@ -253,22 +294,13 @@ pub async fn download_from_cache(
                         cached_data.is_normalized,
                     )
                     .await;
-
-                return Ok(None);
-            }
-
-            v
-        }
-        Err(err) => {
-            let cached_file_repo = CachedFileRepository::new(db.clone());
-
-            let _ = cached_file_repo
-                .delete_by_object_id_object_type_is_normalized(
+            } else {
+                log::warn!(
+                    "Non-definitive error fetching cached file for object_id {} (not evicting cache): {:?}",
                     cached_data.object_id,
-                    cached_data.object_type.clone(),
-                    cached_data.is_normalized,
-                )
-                .await;
+                    err
+                );
+            }
 
             log::error!("{:?}", err);
             return Err(err);
@@ -325,7 +357,14 @@ pub async fn get_books_for_update(
     let uploaded_gte = subset_3.format("%Y-%m-%d").to_string();
     let uploaded_lte = now.format("%Y-%m-%d").to_string();
 
-    let first_page = match get_books(1, page_size, uploaded_gte.clone(), uploaded_lte.clone()).await
+    let first_page = match get_books(
+        1,
+        page_size,
+        uploaded_gte.clone(),
+        uploaded_lte.clone(),
+        BACKGROUND_MAX_RETRIES,
+    )
+    .await
     {
         Ok(v) => v,
         Err(err) => return Err(err),
@@ -342,6 +381,7 @@ pub async fn get_books_for_update(
             page_size,
             uploaded_gte.clone(),
             uploaded_lte.clone(),
+            BACKGROUND_MAX_RETRIES,
         )
         .await
         {
@@ -389,7 +429,15 @@ pub async fn start_update_cache(db: Database) {
                 continue 'types;
             }
 
-            if let Err(err) = cache_file(book.id, available_type, true, db.clone()).await {
+            if let Err(err) = cache_file(
+                book.id,
+                available_type,
+                true,
+                db.clone(),
+                BACKGROUND_MAX_RETRIES,
+            )
+            .await
+            {
                 log::error!("{:?}", err);
             }
         }
