@@ -1,14 +1,13 @@
 use axum::{
     body::Body,
     extract::{Path, Query},
-    http::{self, header, Request, StatusCode},
+    http::{self, Request, StatusCode},
     middleware::{self, Next},
     response::{AppendHeaders, IntoResponse, Response},
     routing::{delete, get, post},
     Extension, Json, Router,
 };
 use axum_prometheus::PrometheusMetricLayer;
-use base64::{engine::general_purpose, Engine};
 use sqlx::PgPool;
 use tokio_util::io::ReaderStream;
 use tower_http::trace::{self, TraceLayer};
@@ -19,8 +18,9 @@ use crate::{
     db::get_pg_pool,
     serializers::CachedFile,
     services::{
-        download_from_cache, download_utils::get_response_async_read, get_cached_file_copy,
-        get_cached_file_or_cache, start_update_cache, CacheData,
+        download_from_cache,
+        download_utils::{build_download_headers, get_response_async_read},
+        get_cached_file_copy, get_cached_file_or_cache, start_update_cache, CacheData,
     },
 };
 
@@ -43,8 +43,12 @@ async fn get_cached_file(
     let is_normalized = normalized.unwrap_or(true);
     let cached_file =
         match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone()).await {
-            Some(cached_file) => cached_file,
-            None => return StatusCode::NO_CONTENT.into_response(),
+            Ok(Some(cached_file)) => cached_file,
+            Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+            Err(err) => {
+                tracing::log::error!("{:?}", err);
+                return StatusCode::BAD_GATEWAY.into_response();
+            }
         };
 
     if !copy {
@@ -72,25 +76,41 @@ async fn download_cached_file(
         match get_cached_file_or_cache(object_id, object_type.clone(), is_normalized, db.clone())
             .await
         {
-            Some(cached_file) => cached_file,
-            None => return StatusCode::NO_CONTENT.into_response(),
+            Ok(Some(cached_file)) => cached_file,
+            Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+            Err(err) => {
+                tracing::log::error!("{:?}", err);
+                return StatusCode::BAD_GATEWAY.into_response();
+            }
         };
 
     let data = match download_from_cache(cached_file, db.clone()).await {
-        Some(v) => v,
-        None => {
+        Ok(Some(v)) => v,
+        Ok(None) => {
             let cached_file =
                 match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone())
                     .await
                 {
-                    Some(v) => v,
-                    None => return StatusCode::NO_CONTENT.into_response(),
+                    Ok(Some(v)) => v,
+                    Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                    Err(err) => {
+                        tracing::log::error!("{:?}", err);
+                        return StatusCode::BAD_GATEWAY.into_response();
+                    }
                 };
 
             match download_from_cache(cached_file, db).await {
-                Some(v) => v,
-                None => return StatusCode::NO_CONTENT.into_response(),
+                Ok(Some(v)) => v,
+                Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                Err(err) => {
+                    tracing::log::error!("{:?}", err);
+                    return StatusCode::BAD_GATEWAY.into_response();
+                }
             }
+        }
+        Err(err) => {
+            tracing::log::error!("{:?}", err);
+            return StatusCode::BAD_GATEWAY.into_response();
         }
     };
 
@@ -98,26 +118,18 @@ async fn download_cached_file(
     let filename_ascii = data.filename_ascii.clone();
     let caption = data.caption.clone();
 
-    let encoder = general_purpose::STANDARD;
+    let content_length = data.response.content_length();
 
     let reader = get_response_async_read(data.response);
     let stream = ReaderStream::new(reader);
     let body = Body::from_stream(stream);
 
-    let headers = AppendHeaders([
-        (
-            header::CONTENT_DISPOSITION,
-            format!("attachment; filename={filename_ascii}"),
-        ),
-        (
-            header::HeaderName::from_static("x-filename-b64"),
-            encoder.encode(filename),
-        ),
-        (
-            header::HeaderName::from_static("x-caption-b64"),
-            encoder.encode(caption),
-        ),
-    ]);
+    let headers = AppendHeaders(build_download_headers(
+        &filename,
+        &filename_ascii,
+        &caption,
+        content_length,
+    ));
 
     (headers, body).into_response()
 }

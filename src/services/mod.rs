@@ -57,7 +57,7 @@ pub async fn get_cached_file_or_cache(
     object_type: String,
     is_normalized: bool,
     db: Database,
-) -> Option<CachedFile> {
+) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
     let cached_file = sqlx::query_as!(
         CachedFile,
         r#"
@@ -72,7 +72,7 @@ pub async fn get_cached_file_or_cache(
     .unwrap();
 
     match cached_file {
-        Some(cached_file) => Some(cached_file),
+        Some(cached_file) => Ok(Some(cached_file)),
         None => cache_file(object_id, object_type, is_normalized, db).await,
     }
 }
@@ -108,6 +108,7 @@ pub async fn get_cached_file_copy(original: CachedFile, db: Database) -> CacheDa
                 db,
             )
             .await
+            .unwrap()
             .unwrap();
 
             bot.copy_message(
@@ -136,12 +137,12 @@ pub async fn cache_file(
     object_type: String,
     is_normalized: bool,
     db: Database,
-) -> Option<CachedFile> {
+) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
     let book = match get_book(object_id).await {
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
@@ -155,11 +156,11 @@ pub async fn cache_file(
     {
         Ok(v) => match v {
             Some(v) => v,
-            None => return None,
+            None => return Ok(None),
         },
         Err(err) => {
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
@@ -170,11 +171,11 @@ pub async fn cache_file(
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
-    Some(
+    Ok(Some(
         sqlx::query_as!(
             CachedFile,
             r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
@@ -189,10 +190,13 @@ pub async fn cache_file(
         .fetch_one(&db)
         .await
         .unwrap(),
-    )
+    ))
 }
 
-pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Option<DownloadResult> {
+pub async fn download_from_cache(
+    cached_data: CachedFile,
+    db: Database,
+) -> Result<Option<DownloadResult>, Box<dyn std::error::Error + Send + Sync>> {
     let response_task = tokio::task::spawn(download_from_telegram_files(
         cached_data.message_id,
         cached_data.chat_id,
@@ -217,7 +221,7 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
                     )
                     .await;
 
-                return None;
+                return Ok(None);
             }
 
             v
@@ -234,7 +238,7 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
                 .await;
 
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
@@ -242,7 +246,7 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
@@ -250,7 +254,7 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
         Ok(v) => v,
         Err(err) => {
             log::error!("{:?}", err);
-            return None;
+            return Err(err);
         }
     };
 
@@ -260,12 +264,12 @@ pub async fn download_from_cache(cached_data: CachedFile, db: Database) -> Optio
     } = filename_data;
     let caption = book.get_caption();
 
-    Some(DownloadResult {
+    Ok(Some(DownloadResult {
         response,
         filename,
         filename_ascii,
         caption,
-    })
+    }))
 }
 
 #[derive(Serialize)]
@@ -352,7 +356,9 @@ pub async fn start_update_cache(db: Database) {
                 continue 'types;
             }
 
-            cache_file(book.id, available_type, true, db.clone()).await;
+            if let Err(err) = cache_file(book.id, available_type, true, db.clone()).await {
+                log::error!("{:?}", err);
+            }
         }
     }
 }
