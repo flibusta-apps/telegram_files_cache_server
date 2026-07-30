@@ -9,6 +9,9 @@ pub struct Config {
     pub postgres_port: u32,
     pub postgres_db: String,
 
+    pub db_max_connections: u32,
+    pub db_acquire_timeout_secs: u64,
+
     pub downloader_api_key: String,
     pub downloader_url: String,
 
@@ -40,6 +43,15 @@ impl Config {
                 .parse()
                 .expect("POSTGRES_PORT must be a valid u32"),
             postgres_db: get_env("POSTGRES_DB"),
+
+            db_max_connections: std::env::var("DB_MAX_CONNECTIONS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(10),
+            db_acquire_timeout_secs: std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
 
             downloader_api_key: get_env("DOWNLOADER_API_KEY"),
             downloader_url: get_env("DOWNLOADER_URL"),

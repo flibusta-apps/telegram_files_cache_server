@@ -13,8 +13,10 @@ pub async fn get_pg_pool() -> PgPool {
     );
 
     PgPoolOptions::new()
-        .max_connections(10)
-        .acquire_timeout(std::time::Duration::from_secs(300))
+        .max_connections(CONFIG.db_max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(
+            CONFIG.db_acquire_timeout_secs,
+        ))
         .connect(&database_url)
         .await
         .unwrap()

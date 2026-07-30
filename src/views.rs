@@ -15,7 +15,6 @@ use tracing::Level;
 
 use crate::{
     config::CONFIG,
-    db::get_pg_pool,
     serializers::CachedFile,
     services::{
         download_from_cache,
@@ -211,9 +210,7 @@ struct Ext {
     pub db: PgPool,
 }
 
-pub async fn get_router() -> Router {
-    let db = get_pg_pool().await;
-
+pub async fn get_router(db: PgPool) -> Router {
     let ext = Ext { db };
 
     let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();

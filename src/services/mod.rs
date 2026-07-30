@@ -5,6 +5,8 @@ pub mod downloader;
 pub mod retry;
 pub mod telegram_files;
 
+use std::sync::Arc;
+
 use chrono::Duration;
 use moka::future::Cache;
 use once_cell::sync::Lazy;
@@ -54,6 +56,45 @@ pub static TEMP_MESSAGES: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
         .build()
 });
 
+/// Short-lived single-flight cache used to dedupe concurrent `cache_file` calls for the
+/// same `(object_id, object_type, is_normalized)` key. This only guards against
+/// duplicate concurrent Telegram uploads while a cache miss is being resolved; the
+/// database row remains the real source of truth once the entry is written. Entries are
+/// evicted quickly since we don't want to serve stale results from here.
+type CacheFileKey = (i32, String, bool);
+type CacheFileInflightCache = Cache<CacheFileKey, Arc<Option<CachedFile>>>;
+
+static CACHE_FILE_INFLIGHT: Lazy<CacheFileInflightCache> = Lazy::new(|| {
+    Cache::builder()
+        .time_to_idle(std::time::Duration::from_secs(5))
+        .max_capacity(256)
+        .build()
+});
+
+/// Wraps a shared (`Arc`-ed) error produced by a deduped `try_get_with` call so it can be
+/// propagated as a plain `Box<dyn Error + Send + Sync>`.
+#[derive(Debug)]
+struct SharedCacheError(Arc<Box<dyn std::error::Error + Send + Sync>>);
+
+impl std::fmt::Display for SharedCacheError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for SharedCacheError {}
+
+fn clone_cached_file(cached_file: &CachedFile) -> CachedFile {
+    CachedFile {
+        id: cached_file.id,
+        object_id: cached_file.object_id,
+        object_type: cached_file.object_type.clone(),
+        is_normalized: cached_file.is_normalized,
+        message_id: cached_file.message_id,
+        chat_id: cached_file.chat_id,
+    }
+}
+
 pub async fn get_cached_file_or_cache(
     object_id: i32,
     object_type: String,
@@ -75,14 +116,25 @@ pub async fn get_cached_file_or_cache(
     match cached_file {
         Some(cached_file) => Ok(Some(cached_file)),
         None => {
-            cache_file(
-                object_id,
-                object_type,
-                is_normalized,
-                db,
-                INTERACTIVE_MAX_RETRIES,
-            )
-            .await
+            let key = (object_id, object_type.clone(), is_normalized);
+
+            match CACHE_FILE_INFLIGHT
+                .try_get_with(key, async move {
+                    cache_file(
+                        object_id,
+                        object_type,
+                        is_normalized,
+                        db,
+                        INTERACTIVE_MAX_RETRIES,
+                    )
+                    .await
+                    .map(Arc::new)
+                })
+                .await
+            {
+                Ok(shared) => Ok(shared.as_ref().as_ref().map(clone_cached_file)),
+                Err(err) => Err(Box::new(SharedCacheError(err))),
+            }
         }
     }
 }
@@ -226,6 +278,8 @@ pub async fn cache_file(
         CachedFile,
         r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
         VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (object_id, object_type, is_normalized)
+        DO UPDATE SET message_id = EXCLUDED.message_id, chat_id = EXCLUDED.chat_id
         RETURNING *"#,
         object_id,
         object_type,

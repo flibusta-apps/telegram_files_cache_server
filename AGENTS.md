@@ -41,6 +41,10 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 
 `.env` is gitignored. `DATABASE_URL` in `.env` is used by sqlx CLI only; the app builds the URL from individual `POSTGRES_*` vars.
 
+**OPTIONAL** (not required, sensible defaults used if unset):
+- `DB_MAX_CONNECTIONS` — max Postgres pool connections (default: `10`).
+- `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
+
 ## SQLx
 
 Uses **offline mode**. Compiled query metadata lives in `.sqlx/`. If you add/modify a `sqlx::query!` or `sqlx::query_as!`, run:

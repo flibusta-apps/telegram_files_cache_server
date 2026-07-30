@@ -1,6 +1,9 @@
 -- Create cached_files table with all indexes and constraints
 -- This migration is idempotent and safe to run on existing databases
 
+-- Create sequence if not exists (for compatibility)
+CREATE SEQUENCE IF NOT EXISTS cached_files_id_seq;
+
 -- Create table if not exists
 CREATE TABLE IF NOT EXISTS cached_files (
     id INTEGER NOT NULL PRIMARY KEY DEFAULT nextval('cached_files_id_seq'::regclass),
@@ -9,9 +12,6 @@ CREATE TABLE IF NOT EXISTS cached_files (
     message_id BIGINT NOT NULL,
     chat_id BIGINT NOT NULL
 );
-
--- Create sequence if not exists (for compatibility)
-CREATE SEQUENCE IF NOT EXISTS cached_files_id_seq;
 
 -- Ensure the sequence is owned by the table column
 DO $$

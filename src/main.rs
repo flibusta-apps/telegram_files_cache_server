@@ -53,7 +53,7 @@ async fn main() {
         .expect("Failed to run database migrations");
     info!("Database migrations completed successfully");
 
-    let app = get_router().await;
+    let app = get_router(pool).await;
 
     info!("Start webserver...");
     let listener = tokio::net::TcpListener::bind(&addr)
