@@ -24,7 +24,7 @@ pub struct Config {
     pub bot_tokens: Vec<String>,
     pub temp_channel_id: i64,
 
-    pub sentry_dsn: String,
+    pub sentry_dsn: Option<String>,
 }
 
 fn get_env(env: &'static str) -> String {
@@ -68,7 +68,7 @@ impl Config {
                 .parse()
                 .expect("TEMP_CHANNEL_ID must be a valid i64"),
 
-            sentry_dsn: get_env("SENTRY_DSN"),
+            sentry_dsn: std::env::var("SENTRY_DSN").ok(),
         }
     }
 }

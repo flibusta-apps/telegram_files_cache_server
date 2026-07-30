@@ -3276,6 +3276,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sqlx",
+ "subtle",
  "teloxide",
  "tempfile",
  "tokio",

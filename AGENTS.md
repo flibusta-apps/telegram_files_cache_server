@@ -37,13 +37,14 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 
 `API_KEY`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`,
 `DOWNLOADER_API_KEY`, `DOWNLOADER_URL`, `LIBRARY_API_KEY`, `LIBRARY_URL`,
-`FILES_SERVER_API_KEY`, `FILES_SERVER_URL`, `BOT_TOKENS` (JSON array), `TEMP_CHANNEL_ID`, `SENTRY_DSN`.
+`FILES_SERVER_API_KEY`, `FILES_SERVER_URL`, `BOT_TOKENS` (JSON array), `TEMP_CHANNEL_ID`.
 
 `.env` is gitignored. `DATABASE_URL` in `.env` is used by sqlx CLI only; the app builds the URL from individual `POSTGRES_*` vars.
 
 **OPTIONAL** (not required, sensible defaults used if unset):
 - `DB_MAX_CONNECTIONS` — max Postgres pool connections (default: `10`).
 - `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
+- `SENTRY_DSN` — Sentry error reporting DSN; Sentry is disabled (no-op) when unset.
 
 ## SQLx
 
@@ -63,4 +64,4 @@ Run automatically on startup via `sqlx::migrate!("./migrations")`. Migrations li
 
 - Dockerfile: `docker/production.dockerfile` (multi-stage, builds release binary).
 - CI pushes to `ghcr.io` on main push, then triggers deploy via webhook.
-- Production env vars are injected directly (Docker env, docker-compose, CI secrets). `scripts/env.sh` → `.env`.
+- Production env vars are injected directly (Docker env, docker-compose, CI secrets).

@@ -18,11 +18,13 @@ use crate::{db::run_migrations, views::get_router};
 async fn main() {
     dotenv().ok();
 
+    let dsn = config::CONFIG
+        .sentry_dsn
+        .as_ref()
+        .map(|dsn| Dsn::from_str(dsn).expect("SENTRY_DSN must be a valid Sentry DSN"));
+
     let options = ClientOptions {
-        dsn: Some(
-            Dsn::from_str(&config::CONFIG.sentry_dsn)
-                .expect("SENTRY_DSN must be a valid Sentry DSN"),
-        ),
+        dsn,
         default_integrations: false,
         ..Default::default()
     }

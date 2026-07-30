@@ -15,10 +15,16 @@ RUN apt-get update \
 
 RUN update-ca-certificates
 
+RUN useradd --system --create-home --shell /usr/sbin/nologin app
+
 COPY ./scripts/*.sh /
 RUN chmod +x /*.sh
 
 WORKDIR /app
+RUN chown app:app /app
 
 COPY --from=builder /app/target/release/telegram_files_cache_server /usr/local/bin
+
+USER app
+
 CMD ["/start.sh"]
