@@ -17,9 +17,9 @@ use crate::{
     config::CONFIG,
     serializers::CachedFile,
     services::{
-        download_from_cache,
+        current_update_cache_status, delete_telegram_message, download_from_cache,
         download_utils::{build_download_headers, get_response_async_read},
-        get_cached_file_copy, get_cached_file_or_cache, start_update_cache,
+        get_cached_file_copy, get_cached_file_or_cache, try_start_update_cache,
     },
 };
 
@@ -34,6 +34,16 @@ pub struct GetCachedFileQuery {
     pub normalized: Option<bool>,
 }
 
+/// Returns cached-file metadata (`message_id`/`chat_id`) for `object_id`/`object_type`.
+///
+/// Staleness contract: with `copy=false` (the default) this returns the raw DB row
+/// without validating that the referenced Telegram message still exists — it can be
+/// stale if the message was deleted out-of-band (e.g. by admin action or a prior
+/// eviction race). Consumers that need a validated reference should pass `?copy=true`
+/// (validates and self-heals by re-caching on failure — see `get_cached_file_copy`) or
+/// use `GET /download/...`, which validates on fetch and evicts+re-caches stale rows.
+/// `created_at` on the returned row can help consumers decide how much to trust an old,
+/// never-copied/never-downloaded entry.
 async fn get_cached_file(
     Path((object_id, object_type)): Path<(i32, String)>,
     Query(GetCachedFileQuery { copy, normalized }): Query<GetCachedFileQuery>,
@@ -169,15 +179,19 @@ async fn delete_cached_file(
     };
 
     match cached_file {
-        Some(v) => Json::<CachedFile>(v).into_response(),
+        Some(v) => {
+            delete_telegram_message(v.chat_id, v.message_id).await;
+            Json::<CachedFile>(v).into_response()
+        }
         None => StatusCode::NO_CONTENT.into_response(),
     }
 }
 
 async fn update_cache(Extension(Ext { db, .. }): Extension<Ext>) -> impl IntoResponse {
-    tokio::spawn(start_update_cache(db));
-
-    StatusCode::OK.into_response()
+    match try_start_update_cache(db) {
+        Some(status) => (StatusCode::OK, Json(status)).into_response(),
+        None => (StatusCode::CONFLICT, Json(current_update_cache_status())).into_response(),
+    }
 }
 
 async fn health_check() -> impl IntoResponse {

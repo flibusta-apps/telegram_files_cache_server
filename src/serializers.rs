@@ -6,4 +6,5 @@ pub struct CachedFile {
     pub is_normalized: bool,
     pub message_id: i64,
     pub chat_id: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }

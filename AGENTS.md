@@ -24,10 +24,10 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 
 - **Entry point**: `src/main.rs` — loads `.env`, inits Sentry, runs migrations, starts Axum on `0.0.0.0:8080`.
 - **Routes** (under `/api/v1/`, all require `Authorization: <API_KEY>`):
-  - `GET /{object_id}/{object_type}/` — get cached file metadata or `?copy` to get a temp Telegram copy
+  - `GET /{object_id}/{object_type}/` — get cached file metadata (may be stale; see code doc comment) or `?copy` to get a temp Telegram copy (expires from the temp channel after 5 minutes — consumer must forward/consume within that window)
   - `GET /download/{object_id}/{object_type}/` — stream file content
-  - `DELETE /{object_id}/{object_type}/` — delete cache entry
-  - `POST /update_cache` — async cache warmup (fetches books from last 3 days)
+  - `DELETE /{object_id}/{object_type}/` — delete cache entry (also best-effort deletes the underlying Telegram message)
+  - `POST /update_cache` — async cache warmup (fetches books from last 3 days); returns 200 with status JSON if started, 409 with last-run status JSON if a scan is already in progress (concurrent calls coalesce onto one scan)
   - `GET /metrics` — Prometheus metrics (no auth)
   - `GET /health` — health check (no auth)
 - **Services**: `book_library` (external API), `downloader` (file download), `telegram_files` (upload/download via Telegram bots, round-robin).

@@ -5,7 +5,10 @@ pub mod downloader;
 pub mod retry;
 pub mod telegram_files;
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use chrono::Duration;
 use moka::future::Cache;
@@ -38,19 +41,35 @@ pub struct CacheData {
     pub chat_id: i64,
 }
 
-pub static TEMP_MESSAGES: Lazy<Cache<i32, MessageId>> = Lazy::new(|| {
+/// TTL for temp-channel copies created by `?copy=true`. This is part of the API
+/// contract for that endpoint: consumers must forward/consume the returned message
+/// within this window, after which this server deletes it from the temp channel.
+const TEMP_MESSAGE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Tracks temp-channel copies produced by `?copy=true` so they can be cleaned up after
+/// `TEMP_MESSAGE_TTL`. Keyed by the *temp message id* itself (unique per copy), not the
+/// cached-file id — this way concurrent copies of the same cached file never collide and
+/// evict/delete each other's still-in-use message.
+pub static TEMP_MESSAGES: Lazy<Cache<i32, ()>> = Lazy::new(|| {
     Cache::builder()
-        .time_to_idle(std::time::Duration::from_secs(16))
+        .time_to_live(TEMP_MESSAGE_TTL)
         .max_capacity(4098)
-        .async_eviction_listener(|_data_id, message_id, _cause| {
+        .async_eviction_listener(|message_id, _value, _cause| {
             Box::pin(async move {
                 let bot = ROUND_ROBIN_BOT.get_bot();
-                let _ = bot
+                if let Err(err) = bot
                     .delete_message(
                         Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
-                        message_id,
+                        MessageId(*message_id),
                     )
-                    .await;
+                    .await
+                {
+                    log::warn!(
+                        "Failed to delete expired temp message {} from temp channel: {:?}",
+                        message_id,
+                        err
+                    );
+                }
             })
         })
         .build()
@@ -92,6 +111,40 @@ fn clone_cached_file(cached_file: &CachedFile) -> CachedFile {
         is_normalized: cached_file.is_normalized,
         message_id: cached_file.message_id,
         chat_id: cached_file.chat_id,
+        created_at: cached_file.created_at,
+    }
+}
+
+/// Best-effort deletion of an uploaded Telegram message. This cache server owns every
+/// message it uploads via `upload_to_telegram_files`, so once a cache row referencing a
+/// message is removed (explicit DELETE, stale-entry eviction, or superseded by a
+/// re-cache) the underlying Telegram message becomes orphaned unless we clean it up
+/// here. Failures are logged, never propagated: losing this race must not fail the
+/// caller's request.
+pub async fn delete_telegram_message(chat_id: i64, message_id: i64) {
+    let message_id: i32 = match message_id.try_into() {
+        Ok(v) => v,
+        Err(err) => {
+            log::warn!(
+                "Cannot delete orphaned Telegram message: message_id {} out of range: {:?}",
+                message_id,
+                err
+            );
+            return;
+        }
+    };
+
+    let bot = ROUND_ROBIN_BOT.get_bot();
+    if let Err(err) = bot
+        .delete_message(Recipient::Id(ChatId(chat_id)), MessageId(message_id))
+        .await
+    {
+        log::warn!(
+            "Failed to delete orphaned Telegram message {} in chat {}: {:?}",
+            message_id,
+            chat_id,
+            err
+        );
     }
 }
 
@@ -178,6 +231,8 @@ pub async fn get_cached_file_copy(
             .execute(&db)
             .await?;
 
+            delete_telegram_message(original.chat_id, original.message_id).await;
+
             let new_original = match get_cached_file_or_cache(
                 original.object_id,
                 original.object_type.clone(),
@@ -218,7 +273,7 @@ pub async fn get_cached_file_copy(
         }
     };
 
-    TEMP_MESSAGES.insert(original.id, message_id).await;
+    TEMP_MESSAGES.insert(message_id.0, ()).await;
 
     Ok(CacheData {
         id: None,
@@ -341,13 +396,25 @@ pub async fn download_from_cache(
             if should_evict {
                 let cached_file_repo = CachedFileRepository::new(db.clone());
 
-                let _ = cached_file_repo
+                match cached_file_repo
                     .delete_by_object_id_object_type_is_normalized(
                         cached_data.object_id,
                         cached_data.object_type.clone(),
                         cached_data.is_normalized,
                     )
-                    .await;
+                    .await
+                {
+                    Ok(deleted) => {
+                        delete_telegram_message(deleted.chat_id, deleted.message_id).await;
+                    }
+                    Err(err) => {
+                        log::warn!(
+                            "Failed to evict stale cache row for object_id {}: {:?}",
+                            cached_data.object_id,
+                            err
+                        );
+                    }
+                }
             } else {
                 log::warn!(
                     "Non-definitive error fetching cached file for object_id {} (not evicting cache): {:?}",
@@ -450,14 +517,8 @@ pub async fn get_books_for_update(
     Ok(result)
 }
 
-pub async fn start_update_cache(db: Database) {
-    let books = match get_books_for_update().await {
-        Ok(v) => v,
-        Err(err) => {
-            log::error!("{:?}", err);
-            return;
-        }
-    };
+async fn start_update_cache(db: Database) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let books = get_books_for_update().await?;
 
     for book in books {
         'types: for available_type in book.available_types {
@@ -496,4 +557,67 @@ pub async fn start_update_cache(db: Database) {
             }
         }
     }
+
+    Ok(())
+}
+
+static UPDATE_CACHE_RUNNING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Serialize)]
+pub struct UpdateCacheStatus {
+    pub running: bool,
+    pub last_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_finished_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_error: Option<String>,
+}
+
+static UPDATE_CACHE_STATUS: Lazy<Mutex<UpdateCacheStatus>> = Lazy::new(|| {
+    Mutex::new(UpdateCacheStatus {
+        running: false,
+        last_started_at: None,
+        last_finished_at: None,
+        last_error: None,
+    })
+});
+
+pub fn current_update_cache_status() -> UpdateCacheStatus {
+    UPDATE_CACHE_STATUS.lock().unwrap().clone()
+}
+
+/// Starts a cache-warmup scan unless one is already running. Returns `None` (and starts
+/// nothing) if a scan is in flight, so repeated `POST /update_cache` calls coalesce onto
+/// the single in-flight scan instead of racing on the same SELECT-then-INSERT per book
+/// and causing duplicate-upload unique-constraint violations.
+pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
+    if UPDATE_CACHE_RUNNING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return None;
+    }
+
+    {
+        let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
+        status.running = true;
+        status.last_started_at = Some(chrono::Utc::now());
+        status.last_error = None;
+    }
+
+    tokio::spawn(async move {
+        let result = start_update_cache(db).await;
+
+        if let Err(err) = &result {
+            log::error!("update_cache scan failed: {:?}", err);
+        }
+
+        let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
+        status.running = false;
+        status.last_finished_at = Some(chrono::Utc::now());
+        status.last_error = result.err().map(|e| e.to_string());
+        drop(status);
+
+        UPDATE_CACHE_RUNNING.store(false, Ordering::SeqCst);
+    });
+
+    Some(current_update_cache_status())
 }

@@ -38,7 +38,7 @@ tower-http = { version = "0.6.2", features = ["trace"] }
 
 reqwest = { version = "0.12.15", features = ["json", "stream", "multipart"] }
 
-chrono = "0.4.40"
+chrono = { version = "0.4.40", features = ["serde"] }
 sentry = { version = "0.42.0", features = ["debug-images"] }
 
 base64 = "0.22.1"
@@ -54,7 +54,7 @@ teloxide = { version = "0.17.0", features = ["macros", "webhooks-axum", "cache-m
 
 moka = { version = "0.12.10", features = ["future"] }
 
-sqlx = { version = "0.8.3", features = ["runtime-tokio", "postgres", "macros", "migrate"] }
+sqlx = { version = "0.8.3", features = ["runtime-tokio", "postgres", "macros", "migrate", "chrono"] }
 
 
 [dev-dependencies]

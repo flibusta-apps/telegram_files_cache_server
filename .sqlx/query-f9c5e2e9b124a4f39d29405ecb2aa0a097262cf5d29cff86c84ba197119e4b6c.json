@@ -32,6 +32,11 @@
         "ordinal": 5,
         "name": "is_normalized",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
@@ -42,6 +47,7 @@
       ]
     },
     "nullable": [
+      false,
       false,
       false,
       false,
