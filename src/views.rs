@@ -199,6 +199,16 @@ async fn health_check() -> impl IntoResponse {
     StatusCode::OK.into_response()
 }
 
+async fn readiness_check(Extension(Ext { db, .. }): Extension<Ext>) -> impl IntoResponse {
+    match sqlx::query("SELECT 1").execute(&db).await {
+        Ok(_) => StatusCode::OK.into_response(),
+        Err(err) => {
+            tracing::log::error!("{:?}", err);
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 //
 
 async fn auth(req: Request<axum::body::Body>, next: Next) -> Result<Response, StatusCode> {
@@ -251,7 +261,10 @@ pub async fn get_router(db: PgPool) -> Router {
         )
         .layer(middleware::from_fn(auth));
 
-    let health_router = Router::new().route("/health", get(health_check));
+    let health_router = Router::new()
+        .route("/health", get(health_check))
+        .route("/ready", get(readiness_check))
+        .layer(Extension(ext.clone()));
 
     Router::new()
         .nest("/api/v1/", app_router)

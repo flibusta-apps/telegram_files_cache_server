@@ -61,6 +61,31 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("Failed to bind to 0.0.0.0:8080");
-    axum::serve(listener, app).await.expect("Webserver crashed");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .expect("Webserver crashed");
     info!("Webserver shutdown...")
+}
+
+async fn shutdown_signal() {
+    let sigterm = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    let sigint = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install SIGINT handler");
+    };
+
+    tokio::select! {
+        _ = sigterm => {},
+        _ = sigint => {},
+    }
+
+    info!("Shutdown signal received, starting graceful drain...");
 }
