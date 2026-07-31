@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use base64::{engine::general_purpose, Engine};
-use once_cell::sync::Lazy;
 use reqwest::{
     header,
     multipart::{Form, Part},
@@ -10,14 +9,8 @@ use reqwest::{
 use serde::Deserialize;
 
 use crate::config::CONFIG;
+use crate::http_client::CLIENT;
 use crate::services::retry::{is_transient_error, retry_connect_only, retry_transient};
-
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .expect("failed to build telegram_files reqwest client")
-});
 
 #[derive(Deserialize)]
 pub struct UploadData {

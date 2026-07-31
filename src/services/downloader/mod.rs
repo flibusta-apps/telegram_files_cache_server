@@ -1,18 +1,11 @@
 use std::time::Duration;
 
-use once_cell::sync::Lazy;
 use reqwest::{Response, StatusCode};
 use serde::Deserialize;
 
 use crate::config::CONFIG;
+use crate::http_client::CLIENT;
 use crate::services::retry::retry_transient;
-
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .expect("failed to build downloader reqwest client")
-});
 
 #[derive(Deserialize)]
 pub struct FilenameData {

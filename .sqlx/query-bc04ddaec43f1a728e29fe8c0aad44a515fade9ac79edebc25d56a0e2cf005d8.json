@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT * FROM cached_files\n        WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3",
+  "query": "\n            SELECT * FROM cached_files\n            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3",
   "describe": {
     "columns": [
       {
@@ -56,5 +56,5 @@
       false
     ]
   },
-  "hash": "b6c11efab788b38f5edd0f0ceb1dca89ee63286fbd555a171a2ec007f35e8143"
+  "hash": "bc04ddaec43f1a728e29fe8c0aad44a515fade9ac79edebc25d56a0e2cf005d8"
 }

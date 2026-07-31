@@ -127,3 +127,20 @@ where
 {
     retry_with(max_retries, is_connect_phase_error, f).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_error_is_transient() {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_millis(200))
+            .build()
+            .unwrap();
+        // Port 1 on localhost should reliably refuse/fail to connect without
+        // touching the network.
+        let err = client.get("http://127.0.0.1:1/").send().await.unwrap_err();
+        assert!(is_transient_error(&err));
+    }
+}

@@ -243,28 +243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-stream"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
-dependencies = [
- "async-stream-impl",
- "futures-core",
- "pin-project-lite",
-]
-
-[[package]]
-name = "async-stream-impl"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3257,15 +3235,12 @@ checksum = "20f34339676cdcab560c9a82300c4c2581f68b9369aedf0fae86f2ff9565ff3e"
 name = "telegram_files_cache_server"
 version = "0.1.0"
 dependencies = [
- "async-stream",
  "axum",
  "axum-prometheus",
  "base64",
- "bytes",
  "chrono",
  "dotenvy",
  "futures",
- "futures-core",
  "metrics",
  "moka",
  "once_cell",
@@ -3279,9 +3254,9 @@ dependencies = [
  "sqlx",
  "subtle",
  "teloxide",
- "tempfile",
  "tokio",
  "tokio-util",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",

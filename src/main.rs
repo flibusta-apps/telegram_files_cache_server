@@ -1,14 +1,8 @@
-pub mod config;
-pub mod db;
-pub mod repository;
-pub mod serializers;
-pub mod services;
-pub mod views;
-
 use dotenvy::dotenv;
 use sentry::{integrations::debug_images::DebugImagesIntegration, types::Dsn, ClientOptions};
 use sentry_tracing::EventFilter;
 use std::{net::SocketAddr, str::FromStr};
+use telegram_files_cache_server::{config, db, views};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 

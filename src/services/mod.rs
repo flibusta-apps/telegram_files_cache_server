@@ -155,17 +155,9 @@ pub async fn get_cached_file_or_cache(
     is_normalized: bool,
     db: Database,
 ) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
-    let cached_file = sqlx::query_as!(
-        CachedFile,
-        r#"
-        SELECT * FROM cached_files
-        WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3"#,
-        object_id,
-        object_type,
-        is_normalized
-    )
-    .fetch_optional(&db)
-    .await?;
+    let cached_file = CachedFileRepository::new(db.clone())
+        .find_by_object_id_object_type_is_normalized(object_id, object_type.clone(), is_normalized)
+        .await?;
 
     match cached_file {
         Some(cached_file) => {
@@ -423,13 +415,19 @@ pub async fn download_from_cache(
                     )
                     .await
                 {
-                    Ok(deleted) => {
+                    Ok(Some(deleted)) => {
                         delete_telegram_message(deleted.chat_id, deleted.message_id).await;
                         metrics::counter!(
                             "cache_evictions_total",
                             "reason" => if status == Some(StatusCode::NOT_FOUND) { "not_found" } else { "gone" }
                         )
                         .increment(1);
+                    }
+                    Ok(None) => {
+                        tracing::debug!(
+                            "No cache row to evict for object_id {} (already gone)",
+                            cached_data.object_id
+                        );
                     }
                     Err(err) => {
                         tracing::warn!(
@@ -480,14 +478,6 @@ pub async fn download_from_cache(
         filename_ascii,
         caption,
     }))
-}
-
-#[derive(Serialize)]
-pub struct FileLinkResult {
-    pub link: String,
-    pub filename: String,
-    pub filename_ascii: String,
-    pub caption: String,
 }
 
 pub async fn get_books_for_update(
@@ -559,16 +549,9 @@ async fn start_update_cache(
         summary.books_scanned += 1;
 
         'types: for available_type in book.available_types {
-            let cached_file = match sqlx::query_as!(
-                CachedFile,
-                r#"SELECT * FROM cached_files
-                   WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3"#,
-                book.id,
-                available_type.clone(),
-                true
-            )
-            .fetch_optional(&db)
-            .await
+            let cached_file = match CachedFileRepository::new(db.clone())
+                .find_by_object_id_object_type_is_normalized(book.id, available_type.clone(), true)
+                .await
             {
                 Ok(v) => v,
                 Err(err) => {

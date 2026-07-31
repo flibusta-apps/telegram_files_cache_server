@@ -45,11 +45,6 @@ sentry = { version = "0.42.0", features = ["debug-images"] }
 base64 = "0.22.1"
 
 futures = "0.3.31"
-futures-core = "0.3.31"
-async-stream = "0.3.6"
-
-tempfile = "3.19.1"
-bytes = "1.11.1"
 
 teloxide = { version = "0.17.0", features = ["macros", "webhooks-axum", "cache-me", "throttle"] }
 
@@ -61,3 +56,4 @@ subtle = "2.6.1"
 
 [dev-dependencies]
 serde_urlencoded = "0.7"
+tower = { version = "0.5", features = ["util"] }

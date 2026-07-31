@@ -1,26 +1,7 @@
 use serde::Deserialize;
-
-// Mirrors the query structs in src/views.rs. Kept local so the test
-// stays a pure unit test (no app wiring, no DB, no live services).
-
-#[derive(Deserialize, Debug, PartialEq)]
-struct GetCachedFileQuery {
-    pub copy: bool,
-    #[serde(default)]
-    pub normalized: Option<bool>,
-}
-
-#[derive(Deserialize, Debug, PartialEq)]
-struct DownloadCachedFileQuery {
-    #[serde(default)]
-    pub normalized: Option<bool>,
-}
-
-#[derive(Deserialize, Debug, PartialEq)]
-struct DeleteCachedFileQuery {
-    #[serde(default)]
-    pub normalized: Option<bool>,
-}
+use telegram_files_cache_server::views::{
+    DeleteCachedFileQuery, DownloadCachedFileQuery, GetCachedFileQuery,
+};
 
 fn parse<T: for<'de> Deserialize<'de>>(s: &str) -> Result<T, serde_urlencoded::de::Error> {
     serde_urlencoded::from_str(s)

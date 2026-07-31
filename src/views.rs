@@ -16,6 +16,7 @@ use tracing::Level;
 
 use crate::{
     config::CONFIG,
+    repository::CachedFileRepository,
     serializers::CachedFile,
     services::{
         current_update_cache_status, delete_telegram_message, download_from_cache,
@@ -28,7 +29,7 @@ pub type Database = PgPool;
 
 //
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct GetCachedFileQuery {
     pub copy: bool,
     #[serde(default)]
@@ -86,7 +87,7 @@ async fn get_cached_file(
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct DownloadCachedFileQuery {
     #[serde(default)]
     pub normalized: Option<bool>,
@@ -181,7 +182,7 @@ async fn download_cached_file(
     (headers, body).into_response()
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct DeleteCachedFileQuery {
     #[serde(default)]
     pub normalized: Option<bool>,
@@ -194,17 +195,9 @@ async fn delete_cached_file(
 ) -> impl IntoResponse {
     let is_normalized = normalized.unwrap_or(true);
     let object_type_for_log = object_type.clone();
-    let cached_file: Option<CachedFile> = match sqlx::query_as!(
-        CachedFile,
-        r#"DELETE FROM cached_files
-            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3
-            RETURNING *"#,
-        object_id,
-        object_type,
-        is_normalized
-    )
-    .fetch_optional(&db)
-    .await
+    let cached_file: Option<CachedFile> = match CachedFileRepository::new(db)
+        .delete_by_object_id_object_type_is_normalized(object_id, object_type, is_normalized)
+        .await
     {
         Ok(v) => v,
         Err(err) => {

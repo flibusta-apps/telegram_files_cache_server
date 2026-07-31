@@ -2,21 +2,13 @@ pub mod types;
 
 use std::time::Duration;
 
-use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
 
 use crate::config::CONFIG;
+use crate::http_client::CLIENT;
 use crate::services::retry::retry_transient;
 
 use self::types::{BaseBook, Page};
-
-pub static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(15))
-        .build()
-        .expect("failed to build book_library reqwest client")
-});
 
 async fn _make_request<T>(
     url: &str,
@@ -36,6 +28,7 @@ where
             let response = CLIENT
                 .get(&formated_url)
                 .query(&params)
+                .timeout(Duration::from_secs(15))
                 .header("Authorization", CONFIG.library_api_key.clone())
                 .send()
                 .await
@@ -63,15 +56,6 @@ where
             }
         }
     })
-    .await
-}
-
-pub async fn get_sources() -> Result<types::Source, Box<dyn std::error::Error + Send + Sync>> {
-    _make_request(
-        "/api/v1/sources",
-        vec![],
-        crate::services::retry::BACKGROUND_MAX_RETRIES,
-    )
     .await
 }
 

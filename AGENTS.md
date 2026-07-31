@@ -16,7 +16,7 @@ cargo clippy --all-features                               # lint
 cargo check                                               # fast compile check
 ```
 
-No tests exist in this repo.
+Tests exist under `tests/` (router-level and query-parsing tests) and as `#[cfg(test)]` unit tests inside `src/` (e.g. `services::retry`, `services::book_library::types`, `services::download_utils`). Run them with `cargo test`. Router-level tests build the real router with a lazy (no I/O) `PgPool` and never touch a live database or network, except for one fast local connect-refused check in the retry-classification test.
 
 Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 
@@ -24,7 +24,7 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 
 - **Entry point**: `src/main.rs` — loads `.env`, inits Sentry, runs migrations, starts Axum on `0.0.0.0:8080`.
 - **Routes** (under `/api/v1/`, all require `Authorization: <API_KEY>`):
-  - `GET /{object_id}/{object_type}/` — get cached file metadata (may be stale; see code doc comment) or `?copy` to get a temp Telegram copy (expires from the temp channel after 5 minutes — consumer must forward/consume within that window)
+  - `GET /{object_id}/{object_type}/` — requires a boolean `copy` query parameter (`?copy=true` or `?copy=false`); `copy=true` returns a temp Telegram copy (expires from the temp channel after 5 minutes — consumer must forward/consume within that window), `copy=false` returns cached file metadata (may be stale; see code doc comment)
   - `GET /download/{object_id}/{object_type}/` — stream file content
   - `DELETE /{object_id}/{object_type}/` — delete cache entry (also best-effort deletes the underlying Telegram message)
   - `POST /update_cache` — async cache warmup (fetches books from last 3 days); returns 200 with status JSON if started, 409 with last-run status JSON if a scan is already in progress (concurrent calls coalesce onto one scan)
