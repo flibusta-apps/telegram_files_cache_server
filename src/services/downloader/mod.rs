@@ -81,7 +81,7 @@ pub async fn get_filename(
         match serde_json::from_str::<FilenameData>(&text) {
             Ok(v) => Ok(v),
             Err(err) => {
-                tracing::log::error!(
+                tracing::error!(
                     "Failed to decode FilenameData from downloader: {}. Response body: {:?}",
                     err,
                     text

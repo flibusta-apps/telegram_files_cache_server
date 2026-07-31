@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
-use tracing::log;
 
 use crate::config::CONFIG;
 use crate::services::retry::retry_transient;
@@ -53,7 +52,7 @@ where
             match serde_json::from_str::<T>(&text) {
                 Ok(v) => Ok(v),
                 Err(err) => {
-                    log::error!(
+                    tracing::error!(
                         "Failed to decode {} from library: {}. Response body: {:?}",
                         std::any::type_name::<T>(),
                         err,

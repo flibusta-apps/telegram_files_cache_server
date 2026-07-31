@@ -8,7 +8,6 @@ use reqwest::{
     Response,
 };
 use serde::Deserialize;
-use tracing::log;
 
 use crate::config::CONFIG;
 use crate::services::retry::{is_transient_error, retry_connect_only, retry_transient};
@@ -137,7 +136,7 @@ pub async fn upload_to_telegram_files(
             match serde_json::from_str::<UploadResult>(&text) {
                 Ok(v) => Ok(v.data),
                 Err(err) => {
-                    log::error!(
+                    tracing::error!(
                         "Failed to decode UploadResult from files server: {}. Response body: {:?}",
                         err,
                         text
@@ -152,7 +151,7 @@ pub async fn upload_to_telegram_files(
     if let Err(err) = &result {
         if let Some(reqwest_err) = err.downcast_ref::<reqwest::Error>() {
             if is_transient_error(reqwest_err) && !reqwest_err.is_connect() {
-                log::warn!(
+                tracing::warn!(
                     "Upload to files server failed with a non-connect transient error and was not retried \
                      (to avoid duplicating a Telegram message if the first attempt actually succeeded \
                      server-side): {}",

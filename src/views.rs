@@ -51,12 +51,18 @@ async fn get_cached_file(
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
     let is_normalized = normalized.unwrap_or(true);
+    let object_type_for_log = object_type.clone();
     let cached_file =
         match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone()).await {
             Ok(Some(cached_file)) => cached_file,
             Ok(None) => return StatusCode::NO_CONTENT.into_response(),
             Err(err) => {
-                tracing::log::error!("{:?}", err);
+                tracing::error!(
+                    object_id,
+                    object_type = %object_type_for_log,
+                    error = ?err,
+                    "failed to get cached file"
+                );
                 return StatusCode::BAD_GATEWAY.into_response();
             }
         };
@@ -65,10 +71,16 @@ async fn get_cached_file(
         return Json(cached_file).into_response();
     }
 
+    let object_type_for_log = cached_file.object_type.clone();
     match get_cached_file_copy(cached_file, db).await {
         Ok(copy_file) => Json(copy_file).into_response(),
         Err(err) => {
-            tracing::log::error!("{:?}", err);
+            tracing::error!(
+                object_id,
+                object_type = %object_type_for_log,
+                error = ?err,
+                "failed to copy cached file"
+            );
             StatusCode::BAD_GATEWAY.into_response()
         }
     }
@@ -93,7 +105,12 @@ async fn download_cached_file(
             Ok(Some(cached_file)) => cached_file,
             Ok(None) => return StatusCode::NO_CONTENT.into_response(),
             Err(err) => {
-                tracing::log::error!("{:?}", err);
+                tracing::error!(
+                    object_id,
+                    object_type = %object_type,
+                    error = ?err,
+                    "failed to get cached file"
+                );
                 return StatusCode::BAD_GATEWAY.into_response();
             }
         };
@@ -101,6 +118,7 @@ async fn download_cached_file(
     let data = match download_from_cache(cached_file, db.clone()).await {
         Ok(Some(v)) => v,
         Ok(None) => {
+            let object_type_for_log = object_type.clone();
             let cached_file =
                 match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone())
                     .await
@@ -108,7 +126,12 @@ async fn download_cached_file(
                     Ok(Some(v)) => v,
                     Ok(None) => return StatusCode::NO_CONTENT.into_response(),
                     Err(err) => {
-                        tracing::log::error!("{:?}", err);
+                        tracing::error!(
+                            object_id,
+                            object_type = %object_type_for_log,
+                            error = ?err,
+                            "failed to get cached file on re-cache retry"
+                        );
                         return StatusCode::BAD_GATEWAY.into_response();
                     }
                 };
@@ -117,13 +140,23 @@ async fn download_cached_file(
                 Ok(Some(v)) => v,
                 Ok(None) => return StatusCode::NO_CONTENT.into_response(),
                 Err(err) => {
-                    tracing::log::error!("{:?}", err);
+                    tracing::error!(
+                        object_id,
+                        object_type = %object_type_for_log,
+                        error = ?err,
+                        "failed to download from cache on retry"
+                    );
                     return StatusCode::BAD_GATEWAY.into_response();
                 }
             }
         }
         Err(err) => {
-            tracing::log::error!("{:?}", err);
+            tracing::error!(
+                object_id,
+                object_type = %object_type,
+                error = ?err,
+                "failed to download from cache"
+            );
             return StatusCode::BAD_GATEWAY.into_response();
         }
     };
@@ -160,6 +193,7 @@ async fn delete_cached_file(
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
     let is_normalized = normalized.unwrap_or(true);
+    let object_type_for_log = object_type.clone();
     let cached_file: Option<CachedFile> = match sqlx::query_as!(
         CachedFile,
         r#"DELETE FROM cached_files
@@ -174,7 +208,12 @@ async fn delete_cached_file(
     {
         Ok(v) => v,
         Err(err) => {
-            tracing::log::error!("{:?}", err);
+            tracing::error!(
+                object_id,
+                object_type = %object_type_for_log,
+                error = ?err,
+                "failed to delete cached file"
+            );
             return StatusCode::BAD_GATEWAY.into_response();
         }
     };
@@ -203,7 +242,7 @@ async fn readiness_check(Extension(Ext { db, .. }): Extension<Ext>) -> impl Into
     match sqlx::query("SELECT 1").execute(&db).await {
         Ok(_) => StatusCode::OK.into_response(),
         Err(err) => {
-            tracing::log::error!("{:?}", err);
+            tracing::error!(error = ?err, "readiness check DB probe failed");
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }

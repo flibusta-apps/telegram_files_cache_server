@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use rand::Rng;
 use tokio::time::sleep;
-use tracing::log;
 
 /// Retry budget for calls made inline in a user-facing HTTP handler:
 /// 1 retry (2 total attempts) so a struggling upstream doesn't stall the request for long.
@@ -84,7 +83,7 @@ where
                         let base = Duration::from_secs(2u64.pow(attempt));
                         let jitter_ms = rand::thread_rng().gen_range(0..500u64);
                         let delay = base + Duration::from_millis(jitter_ms);
-                        log::warn!(
+                        tracing::warn!(
                             "Transient error (attempt {}/{}): {}. Retrying in {:?}",
                             attempt,
                             max_retries,

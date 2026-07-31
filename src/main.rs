@@ -10,7 +10,7 @@ use sentry::{integrations::debug_images::DebugImagesIntegration, types::Dsn, Cli
 use sentry_tracing::EventFilter;
 use std::{net::SocketAddr, str::FromStr};
 use tracing::info;
-use tracing_subscriber::{filter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{db::run_migrations, views::get_router};
 
@@ -32,14 +32,19 @@ async fn main() {
 
     let _guard = sentry::init(options);
 
-    let sentry_layer = sentry_tracing::layer().event_filter(|md| match md.level() {
-        &tracing::Level::ERROR => EventFilter::Event,
-        _ => EventFilter::Ignore,
-    });
+    let sentry_layer = sentry_tracing::layer()
+        .event_filter(|md| match md.level() {
+            &tracing::Level::ERROR => EventFilter::Event,
+            _ => EventFilter::Ignore,
+        })
+        .enable_span_attributes();
+
+    let env_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_target(false))
-        .with(filter::LevelFilter::INFO)
+        .with(env_filter)
         .with(sentry_layer)
         .init();
 

@@ -19,7 +19,7 @@ use teloxide::{
     requests::Requester,
     types::{ChatId, MessageId, Recipient},
 };
-use tracing::log;
+use tracing::Instrument;
 
 use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
 
@@ -64,7 +64,7 @@ pub static TEMP_MESSAGES: Lazy<Cache<i32, ()>> = Lazy::new(|| {
                     )
                     .await
                 {
-                    log::warn!(
+                    tracing::warn!(
                         "Failed to delete expired temp message {} from temp channel: {:?}",
                         message_id,
                         err
@@ -125,7 +125,7 @@ pub async fn delete_telegram_message(chat_id: i64, message_id: i64) {
     let message_id: i32 = match message_id.try_into() {
         Ok(v) => v,
         Err(err) => {
-            log::warn!(
+            tracing::warn!(
                 "Cannot delete orphaned Telegram message: message_id {} out of range: {:?}",
                 message_id,
                 err
@@ -139,7 +139,7 @@ pub async fn delete_telegram_message(chat_id: i64, message_id: i64) {
         .delete_message(Recipient::Id(ChatId(chat_id)), MessageId(message_id))
         .await
     {
-        log::warn!(
+        tracing::warn!(
             "Failed to delete orphaned Telegram message {} in chat {}: {:?}",
             message_id,
             chat_id,
@@ -148,6 +148,7 @@ pub async fn delete_telegram_message(chat_id: i64, message_id: i64) {
     }
 }
 
+#[tracing::instrument(skip(db), fields(object_id = object_id, object_type = %object_type, is_normalized))]
 pub async fn get_cached_file_or_cache(
     object_id: i32,
     object_type: String,
@@ -167,8 +168,13 @@ pub async fn get_cached_file_or_cache(
     .await?;
 
     match cached_file {
-        Some(cached_file) => Ok(Some(cached_file)),
+        Some(cached_file) => {
+            metrics::counter!("cache_hits_total").increment(1);
+            Ok(Some(cached_file))
+        }
         None => {
+            metrics::counter!("cache_misses_total").increment(1);
+
             let key = (object_id, object_type.clone(), is_normalized);
 
             match CACHE_FILE_INFLIGHT
@@ -192,6 +198,7 @@ pub async fn get_cached_file_or_cache(
     }
 }
 
+#[tracing::instrument(skip(db, original), fields(object_id = original.object_id, object_type = %original.object_type))]
 pub async fn get_cached_file_copy(
     original: CachedFile,
     db: Database,
@@ -199,7 +206,7 @@ pub async fn get_cached_file_copy(
     let bot = ROUND_ROBIN_BOT.get_bot();
 
     let original_message_id: i32 = original.message_id.try_into().map_err(|err| {
-        log::error!(
+        tracing::error!(
             "Invalid message_id {} for object_id {}: {:?}",
             original.message_id,
             original.object_id,
@@ -246,13 +253,13 @@ pub async fn get_cached_file_copy(
                     let err = std::io::Error::other(
                         "failed to re-cache file for copy: upstream returned no file",
                     );
-                    log::error!("{:?}", err);
+                    tracing::error!("{:?}", err);
                     return Err(Box::new(err));
                 }
             };
 
             let new_message_id: i32 = new_original.message_id.try_into().map_err(|err| {
-                log::error!(
+                tracing::error!(
                     "Invalid message_id {} for object_id {}: {:?}",
                     new_original.message_id,
                     new_original.object_id,
@@ -284,6 +291,7 @@ pub async fn get_cached_file_copy(
     })
 }
 
+#[tracing::instrument(skip(db), fields(object_id = object_id, object_type = %object_type, is_normalized))]
 pub async fn cache_file(
     object_id: i32,
     object_type: String,
@@ -294,7 +302,7 @@ pub async fn cache_file(
     let book = match get_book(object_id, max_retries).await {
         Ok(v) => v,
         Err(err) => {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -313,7 +321,7 @@ pub async fn cache_file(
             None => return Ok(None),
         },
         Err(err) => {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -324,7 +332,8 @@ pub async fn cache_file(
     } = match upload_to_telegram_files(downloader_result, book.get_caption(), max_retries).await {
         Ok(v) => v,
         Err(err) => {
-            log::error!("{:?}", err);
+            metrics::counter!("upload_failures_total").increment(1);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -348,22 +357,32 @@ pub async fn cache_file(
     Ok(Some(cached))
 }
 
+#[tracing::instrument(skip(db, cached_data), fields(object_id = cached_data.object_id, object_type = %cached_data.object_type))]
 pub async fn download_from_cache(
     cached_data: CachedFile,
     db: Database,
 ) -> Result<Option<DownloadResult>, Box<dyn std::error::Error + Send + Sync>> {
-    let response_task = tokio::task::spawn(download_from_telegram_files(
-        cached_data.message_id,
-        cached_data.chat_id,
-        INTERACTIVE_MAX_RETRIES,
-    ));
-    let filename_task = tokio::task::spawn(get_filename(
-        cached_data.object_id,
-        cached_data.object_type.clone(),
-        cached_data.is_normalized,
-        INTERACTIVE_MAX_RETRIES,
-    ));
-    let book_task = tokio::task::spawn(get_book(cached_data.object_id, INTERACTIVE_MAX_RETRIES));
+    let response_task = tokio::task::spawn(
+        download_from_telegram_files(
+            cached_data.message_id,
+            cached_data.chat_id,
+            INTERACTIVE_MAX_RETRIES,
+        )
+        .instrument(tracing::Span::current()),
+    );
+    let filename_task = tokio::task::spawn(
+        get_filename(
+            cached_data.object_id,
+            cached_data.object_type.clone(),
+            cached_data.is_normalized,
+            INTERACTIVE_MAX_RETRIES,
+        )
+        .instrument(tracing::Span::current()),
+    );
+    let book_task = tokio::task::spawn(
+        get_book(cached_data.object_id, INTERACTIVE_MAX_RETRIES)
+            .instrument(tracing::Span::current()),
+    );
 
     let response = match response_task.await? {
         Ok(v) => match v.status() {
@@ -373,7 +392,7 @@ pub async fn download_from_cache(
                 return Ok(None);
             }
             other => {
-                log::warn!(
+                tracing::warn!(
                     "Unexpected non-error status {} from telegram_files download for object_id {}; using response as-is",
                     other,
                     cached_data.object_id
@@ -386,12 +405,12 @@ pub async fn download_from_cache(
             // status-based error here carries the real upstream status code. Only evict
             // the cache row on a definitive "message no longer exists" answer (404/410).
             // 5xx / timeouts / connect errors are transient and must not evict a valid cache entry.
-            let should_evict = err
+            let status = err
                 .downcast_ref::<reqwest::Error>()
-                .and_then(|e| e.status())
-                .is_some_and(|status| {
-                    status == StatusCode::NOT_FOUND || status == StatusCode::GONE
-                });
+                .and_then(|e| e.status());
+            let should_evict = status.is_some_and(|status| {
+                status == StatusCode::NOT_FOUND || status == StatusCode::GONE
+            });
 
             if should_evict {
                 let cached_file_repo = CachedFileRepository::new(db.clone());
@@ -406,9 +425,14 @@ pub async fn download_from_cache(
                 {
                     Ok(deleted) => {
                         delete_telegram_message(deleted.chat_id, deleted.message_id).await;
+                        metrics::counter!(
+                            "cache_evictions_total",
+                            "reason" => if status == Some(StatusCode::NOT_FOUND) { "not_found" } else { "gone" }
+                        )
+                        .increment(1);
                     }
                     Err(err) => {
-                        log::warn!(
+                        tracing::warn!(
                             "Failed to evict stale cache row for object_id {}: {:?}",
                             cached_data.object_id,
                             err
@@ -416,14 +440,14 @@ pub async fn download_from_cache(
                     }
                 }
             } else {
-                log::warn!(
+                tracing::warn!(
                     "Non-definitive error fetching cached file for object_id {} (not evicting cache): {:?}",
                     cached_data.object_id,
                     err
                 );
             }
 
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -431,7 +455,7 @@ pub async fn download_from_cache(
     let filename_data = match filename_task.await? {
         Ok(v) => v,
         Err(err) => {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -439,7 +463,7 @@ pub async fn download_from_cache(
     let book = match book_task.await? {
         Ok(v) => v,
         Err(err) => {
-            log::error!("{:?}", err);
+            tracing::error!("{:?}", err);
             return Err(err);
         }
     };
@@ -517,10 +541,23 @@ pub async fn get_books_for_update(
     Ok(result)
 }
 
-async fn start_update_cache(db: Database) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+#[derive(Default)]
+struct UpdateCacheSummary {
+    books_scanned: usize,
+    files_cached: usize,
+    failures: usize,
+}
+
+async fn start_update_cache(
+    db: Database,
+) -> Result<UpdateCacheSummary, Box<dyn std::error::Error + Send + Sync>> {
     let books = get_books_for_update().await?;
 
+    let mut summary = UpdateCacheSummary::default();
+
     for book in books {
+        summary.books_scanned += 1;
+
         'types: for available_type in book.available_types {
             let cached_file = match sqlx::query_as!(
                 CachedFile,
@@ -535,7 +572,8 @@ async fn start_update_cache(db: Database) -> Result<(), Box<dyn std::error::Erro
             {
                 Ok(v) => v,
                 Err(err) => {
-                    log::error!("{:?}", err);
+                    tracing::error!("{:?}", err);
+                    summary.failures += 1;
                     continue 'types;
                 }
             };
@@ -544,7 +582,7 @@ async fn start_update_cache(db: Database) -> Result<(), Box<dyn std::error::Erro
                 continue 'types;
             }
 
-            if let Err(err) = cache_file(
+            match cache_file(
                 book.id,
                 available_type,
                 true,
@@ -553,12 +591,19 @@ async fn start_update_cache(db: Database) -> Result<(), Box<dyn std::error::Erro
             )
             .await
             {
-                log::error!("{:?}", err);
+                Ok(Some(_)) => {
+                    summary.files_cached += 1;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::error!("{:?}", err);
+                    summary.failures += 1;
+                }
             }
         }
     }
 
-    Ok(())
+    Ok(summary)
 }
 
 static UPDATE_CACHE_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -603,21 +648,49 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
         status.last_error = None;
     }
 
-    tokio::spawn(async move {
-        let result = start_update_cache(db).await;
+    let run_span = tracing::info_span!("update_cache_run");
 
-        if let Err(err) = &result {
-            log::error!("update_cache scan failed: {:?}", err);
+    tokio::spawn(
+        async move {
+            let started_at = std::time::Instant::now();
+            let result = start_update_cache(db).await;
+            let duration = started_at.elapsed();
+
+            let outcome = if result.is_ok() { "success" } else { "failure" };
+            metrics::counter!("update_cache_runs_total", "outcome" => outcome).increment(1);
+            metrics::histogram!("update_cache_duration_seconds").record(duration.as_secs_f64());
+
+            match &result {
+                Ok(summary) => {
+                    metrics::counter!("update_cache_cached_files_total")
+                        .increment(summary.files_cached as u64);
+                    tracing::info!(
+                        books_scanned = summary.books_scanned,
+                        files_cached = summary.files_cached,
+                        failures = summary.failures,
+                        duration_ms = duration.as_millis() as u64,
+                        "update_cache run completed"
+                    );
+                }
+                Err(err) => {
+                    tracing::error!("update_cache scan failed: {:?}", err);
+                    tracing::error!(
+                        duration_ms = duration.as_millis() as u64,
+                        "update_cache run failed"
+                    );
+                }
+            }
+
+            let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
+            status.running = false;
+            status.last_finished_at = Some(chrono::Utc::now());
+            status.last_error = result.err().map(|e| e.to_string());
+            drop(status);
+
+            UPDATE_CACHE_RUNNING.store(false, Ordering::SeqCst);
         }
-
-        let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
-        status.running = false;
-        status.last_finished_at = Some(chrono::Utc::now());
-        status.last_error = result.err().map(|e| e.to_string());
-        drop(status);
-
-        UPDATE_CACHE_RUNNING.store(false, Ordering::SeqCst);
-    });
+        .instrument(run_span),
+    );
 
     Some(current_update_cache_status())
 }
