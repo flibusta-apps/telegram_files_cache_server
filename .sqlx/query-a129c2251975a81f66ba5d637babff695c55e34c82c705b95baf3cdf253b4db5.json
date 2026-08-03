@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (object_id, object_type, is_normalized)\n        DO UPDATE SET message_id = EXCLUDED.message_id, chat_id = EXCLUDED.chat_id\n        RETURNING *",
+  "query": "\n            DELETE FROM cached_files\n            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3\n            RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at\n            ",
   "describe": {
     "columns": [
       {
@@ -20,18 +20,18 @@
       },
       {
         "ordinal": 3,
+        "name": "is_normalized",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
         "name": "message_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "chat_id",
         "type_info": "Int8"
-      },
-      {
-        "ordinal": 5,
-        "name": "is_normalized",
-        "type_info": "Bool"
       },
       {
         "ordinal": 6,
@@ -42,10 +42,8 @@
     "parameters": {
       "Left": [
         "Int4",
-        "Varchar",
-        "Bool",
-        "Int8",
-        "Int8"
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -58,5 +56,5 @@
       false
     ]
   },
-  "hash": "d950b064acd542eefeb183de43c102b48abd54746042808414ecf1c4460b1660"
+  "hash": "a129c2251975a81f66ba5d637babff695c55e34c82c705b95baf3cdf253b4db5"
 }

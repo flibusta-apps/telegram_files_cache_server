@@ -44,6 +44,7 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 **OPTIONAL** (not required, sensible defaults used if unset):
 - `DB_MAX_CONNECTIONS` — max Postgres pool connections (default: `10`).
 - `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
+- `CACHE_WARMUP_CONCURRENCY` — max concurrent `(book, type)` pairs processed per page during `POST /update_cache` warmup (default: `4`). Should stay below the number of `BOT_TOKENS` (round-robin bot pool size) to avoid saturating any single bot.
 - `SENTRY_DSN` — Sentry error reporting DSN; Sentry is disabled (no-op) when unset.
 
 ## SQLx

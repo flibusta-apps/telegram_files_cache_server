@@ -4,6 +4,7 @@ pub mod download_utils;
 pub mod downloader;
 pub mod retry;
 pub mod telegram_files;
+pub mod warmup;
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -24,7 +25,7 @@ use tracing::Instrument;
 use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
 
 use self::{
-    book_library::{get_book, get_books, types::BaseBook},
+    book_library::{get_book, get_books},
     bots::ROUND_ROBIN_BOT,
     download_utils::DownloadResult,
     downloader::{download_from_downloader, get_filename, FilenameData},
@@ -336,7 +337,7 @@ pub async fn cache_file(
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (object_id, object_type, is_normalized)
         DO UPDATE SET message_id = EXCLUDED.message_id, chat_id = EXCLUDED.chat_id
-        RETURNING *"#,
+        RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at"#,
         object_id,
         object_type,
         is_normalized,
@@ -354,29 +355,22 @@ pub async fn download_from_cache(
     cached_data: CachedFile,
     db: Database,
 ) -> Result<Option<DownloadResult>, Box<dyn std::error::Error + Send + Sync>> {
-    let response_task = tokio::task::spawn(
+    let (response_result, filename_result, book_result) = tokio::join!(
         download_from_telegram_files(
             cached_data.message_id,
             cached_data.chat_id,
             INTERACTIVE_MAX_RETRIES,
-        )
-        .instrument(tracing::Span::current()),
-    );
-    let filename_task = tokio::task::spawn(
+        ),
         get_filename(
             cached_data.object_id,
             cached_data.object_type.clone(),
             cached_data.is_normalized,
             INTERACTIVE_MAX_RETRIES,
-        )
-        .instrument(tracing::Span::current()),
-    );
-    let book_task = tokio::task::spawn(
-        get_book(cached_data.object_id, INTERACTIVE_MAX_RETRIES)
-            .instrument(tracing::Span::current()),
+        ),
+        get_book(cached_data.object_id, INTERACTIVE_MAX_RETRIES),
     );
 
-    let response = match response_task.await? {
+    let response = match response_result {
         Ok(v) => match v.status() {
             StatusCode::OK => v,
             StatusCode::NO_CONTENT => {
@@ -450,7 +444,7 @@ pub async fn download_from_cache(
         }
     };
 
-    let filename_data = match filename_task.await? {
+    let filename_data = match filename_result {
         Ok(v) => v,
         Err(err) => {
             tracing::error!("{:?}", err);
@@ -458,7 +452,7 @@ pub async fn download_from_cache(
         }
     };
 
-    let book = match book_task.await? {
+    let book = match book_result {
         Ok(v) => v,
         Err(err) => {
             tracing::error!("{:?}", err);
@@ -480,10 +474,70 @@ pub async fn download_from_cache(
     }))
 }
 
-pub async fn get_books_for_update(
-) -> Result<Vec<BaseBook>, Box<dyn std::error::Error + Send + Sync>> {
-    let mut result: Vec<BaseBook> = vec![];
+#[derive(Default)]
+struct UpdateCacheSummary {
+    books_scanned: usize,
+    files_cached: usize,
+    failures: usize,
+}
 
+/// One `(book_id, object_type)` pair to be cache-warmed. `is_normalized` is always
+/// `true` for warmup (matches the prior sequential behavior).
+type WarmupPair = (i32, String);
+
+/// Caches a single `(book_id, object_type)` pair unless it's already cached. Returns
+/// `true` on success (including "already cached, nothing to do"), `false` on failure.
+/// Increments `files_cached` (shared across the page's workers) only when a *new* file
+/// was actually cached, so `UpdateCacheSummary::files_cached` keeps its original
+/// meaning even though `run_with_concurrency` only tracks success/failure. On a 429
+/// from the files server, extends the shared `throttle` backoff before reporting
+/// failure so sibling in-flight workers pause too.
+async fn warm_up_pair(
+    (book_id, object_type): WarmupPair,
+    db: Database,
+    throttle: Arc<warmup::WarmupThrottle>,
+    files_cached: Arc<std::sync::atomic::AtomicUsize>,
+) -> bool {
+    let cached_file = match CachedFileRepository::new(db.clone())
+        .find_by_object_id_object_type_is_normalized(book_id, object_type.clone(), true)
+        .await
+    {
+        Ok(v) => v,
+        Err(err) => {
+            tracing::error!("{:?}", err);
+            return false;
+        }
+    };
+
+    if cached_file.is_some() {
+        return true;
+    }
+
+    match cache_file(book_id, object_type, true, db, BACKGROUND_MAX_RETRIES).await {
+        Ok(Some(_)) => {
+            files_cached.fetch_add(1, Ordering::Relaxed);
+            true
+        }
+        Ok(None) => true,
+        Err(err) => {
+            let is_rate_limited = err
+                .downcast_ref::<reqwest::Error>()
+                .and_then(|e| e.status())
+                == Some(StatusCode::TOO_MANY_REQUESTS);
+
+            if is_rate_limited {
+                throttle.trigger_backoff(warmup::WARMUP_429_BACKOFF).await;
+            }
+
+            tracing::error!("{:?}", err);
+            false
+        }
+    }
+}
+
+async fn start_update_cache(
+    db: Database,
+) -> Result<UpdateCacheSummary, Box<dyn std::error::Error + Send + Sync>> {
     let page_size = 50;
 
     let now = chrono::offset::Utc::now();
@@ -492,98 +546,80 @@ pub async fn get_books_for_update(
     let uploaded_gte = subset_3.format("%Y-%m-%d").to_string();
     let uploaded_lte = now.format("%Y-%m-%d").to_string();
 
-    let first_page = match get_books(
+    let mut summary = UpdateCacheSummary::default();
+    let throttle = Arc::new(warmup::WarmupThrottle::new());
+    let concurrency = config::CONFIG.cache_warmup_concurrency;
+
+    let first_page = get_books(
         1,
         page_size,
         uploaded_gte.clone(),
         uploaded_lte.clone(),
         BACKGROUND_MAX_RETRIES,
     )
-    .await
-    {
-        Ok(v) => v,
-        Err(err) => return Err(err),
-    };
-
-    result.extend(first_page.items);
-
-    let mut current_page = 2;
+    .await?;
     let page_count = first_page.pages;
 
-    while current_page <= page_count {
-        let page = match get_books(
-            current_page,
-            page_size,
-            uploaded_gte.clone(),
-            uploaded_lte.clone(),
-            BACKGROUND_MAX_RETRIES,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(err) => return Err(err),
-        };
-        result.extend(page.items);
+    let mut current_page_books = first_page.items;
+    let mut next_page_number = 2;
 
-        current_page += 1;
-    }
-
-    Ok(result)
-}
-
-#[derive(Default)]
-struct UpdateCacheSummary {
-    books_scanned: usize,
-    files_cached: usize,
-    failures: usize,
-}
-
-async fn start_update_cache(
-    db: Database,
-) -> Result<UpdateCacheSummary, Box<dyn std::error::Error + Send + Sync>> {
-    let books = get_books_for_update().await?;
-
-    let mut summary = UpdateCacheSummary::default();
-
-    for book in books {
-        summary.books_scanned += 1;
-
-        'types: for available_type in book.available_types {
-            let cached_file = match CachedFileRepository::new(db.clone())
-                .find_by_object_id_object_type_is_normalized(book.id, available_type.clone(), true)
+    loop {
+        // Kick off the fetch for the next page (if any) before processing the current
+        // one, so network fetch and cache processing overlap.
+        let next_page_fetch = if next_page_number <= page_count {
+            let uploaded_gte = uploaded_gte.clone();
+            let uploaded_lte = uploaded_lte.clone();
+            let page_number = next_page_number;
+            Some(tokio::spawn(async move {
+                get_books(
+                    page_number,
+                    page_size,
+                    uploaded_gte,
+                    uploaded_lte,
+                    BACKGROUND_MAX_RETRIES,
+                )
                 .await
-            {
-                Ok(v) => v,
-                Err(err) => {
-                    tracing::error!("{:?}", err);
-                    summary.failures += 1;
-                    continue 'types;
-                }
-            };
+            }))
+        } else {
+            None
+        };
 
-            if cached_file.is_some() {
-                continue 'types;
-            }
+        summary.books_scanned += current_page_books.len();
 
-            match cache_file(
-                book.id,
-                available_type,
-                true,
-                db.clone(),
-                BACKGROUND_MAX_RETRIES,
-            )
-            .await
-            {
-                Ok(Some(_)) => {
-                    summary.files_cached += 1;
-                }
-                Ok(None) => {}
-                Err(err) => {
-                    tracing::error!("{:?}", err);
-                    summary.failures += 1;
-                }
-            }
-        }
+        let pairs: Vec<WarmupPair> = current_page_books
+            .into_iter()
+            .flat_map(|book| {
+                book.available_types
+                    .into_iter()
+                    .map(move |object_type| (book.id, object_type))
+            })
+            .collect();
+
+        let db_for_workers = db.clone();
+        let files_cached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let files_cached_for_workers = files_cached.clone();
+        let (_successes, failures) = warmup::run_with_concurrency(
+            pairs,
+            concurrency,
+            throttle.clone(),
+            move |pair, throttle| {
+                let db = db_for_workers.clone();
+                let files_cached = files_cached_for_workers.clone();
+                async move { warm_up_pair(pair, db, throttle, files_cached).await }
+            },
+        )
+        .await;
+
+        summary.files_cached += files_cached.load(Ordering::Relaxed);
+        summary.failures += failures;
+
+        let Some(next_page_fetch) = next_page_fetch else {
+            break;
+        };
+
+        let next_page = next_page_fetch.await??;
+        current_page_books = next_page.items;
+        next_page_number += 1;
     }
 
     Ok(summary)

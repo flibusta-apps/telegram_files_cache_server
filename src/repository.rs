@@ -18,7 +18,8 @@ impl CachedFileRepository {
         sqlx::query_as!(
             CachedFile,
             r#"
-            SELECT * FROM cached_files
+            SELECT id, object_id, object_type, is_normalized, message_id, chat_id, created_at
+            FROM cached_files
             WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3"#,
             object_id,
             object_type,
@@ -39,7 +40,7 @@ impl CachedFileRepository {
             r#"
             DELETE FROM cached_files
             WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3
-            RETURNING *
+            RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at
             "#,
             object_id,
             object_type,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT * FROM cached_files\n            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3",
+  "query": "\n            SELECT id, object_id, object_type, is_normalized, message_id, chat_id, created_at\n            FROM cached_files\n            WHERE object_id = $1 AND object_type = $2 AND is_normalized = $3",
   "describe": {
     "columns": [
       {
@@ -20,18 +20,18 @@
       },
       {
         "ordinal": 3,
+        "name": "is_normalized",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
         "name": "message_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "chat_id",
         "type_info": "Int8"
-      },
-      {
-        "ordinal": 5,
-        "name": "is_normalized",
-        "type_info": "Bool"
       },
       {
         "ordinal": 6,
@@ -56,5 +56,5 @@
       false
     ]
   },
-  "hash": "bc04ddaec43f1a728e29fe8c0aad44a515fade9ac79edebc25d56a0e2cf005d8"
+  "hash": "5cba0973adde341aacd72342241e6a81da5a4163dcd414a152eea3ef44be3d7e"
 }

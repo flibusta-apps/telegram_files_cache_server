@@ -12,6 +12,8 @@ pub struct Config {
     pub db_max_connections: u32,
     pub db_acquire_timeout_secs: u64,
 
+    pub cache_warmup_concurrency: usize,
+
     pub downloader_api_key: String,
     pub downloader_url: String,
 
@@ -52,6 +54,11 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(5),
+
+            cache_warmup_concurrency: std::env::var("CACHE_WARMUP_CONCURRENCY")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4),
 
             downloader_api_key: get_env("DOWNLOADER_API_KEY"),
             downloader_url: get_env("DOWNLOADER_URL"),
