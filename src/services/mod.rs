@@ -3,8 +3,10 @@ pub mod bots;
 pub mod download_utils;
 pub mod downloader;
 pub mod retry;
+pub mod reuse;
 pub mod telegram_files;
 pub mod warmup;
+pub mod zip_utils;
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -300,36 +302,56 @@ pub async fn cache_file(
         }
     };
 
-    let downloader_result = match download_from_downloader(
-        book.source.id,
-        book.remote_id,
-        object_type.clone(),
+    let source_id = book.source.id;
+    let remote_id = book.remote_id;
+    let caption = book.get_caption();
+
+    let upload_result = match reuse::try_reuse_from_opposite_normalized(
+        object_id,
+        &object_type,
         is_normalized,
+        &db,
+        &caption,
         max_retries,
     )
-    .await
+    .await?
     {
-        Ok(v) => match v {
-            Some(v) => v,
-            None => return Ok(None),
-        },
-        Err(err) => {
-            tracing::error!("{:?}", err);
-            return Err(err);
+        reuse::ReuseOutcome::Uploaded(v) => v,
+        reuse::ReuseOutcome::NotEligible => {
+            let downloader_result = match download_from_downloader(
+                source_id,
+                remote_id,
+                object_type.clone(),
+                is_normalized,
+                max_retries,
+            )
+            .await
+            {
+                Ok(v) => match v {
+                    Some(v) => v,
+                    None => return Ok(None),
+                },
+                Err(err) => {
+                    tracing::error!("{:?}", err);
+                    return Err(err);
+                }
+            };
+
+            match upload_to_telegram_files(downloader_result, caption, max_retries).await {
+                Ok(v) => v,
+                Err(err) => {
+                    metrics::counter!("upload_failures_total").increment(1);
+                    tracing::error!("{:?}", err);
+                    return Err(err);
+                }
+            }
         }
     };
 
     let UploadData {
         chat_id,
         message_id,
-    } = match upload_to_telegram_files(downloader_result, book.get_caption(), max_retries).await {
-        Ok(v) => v,
-        Err(err) => {
-            metrics::counter!("upload_failures_total").increment(1);
-            tracing::error!("{:?}", err);
-            return Err(err);
-        }
-    };
+    } = upload_result;
 
     let cached = sqlx::query_as!(
         CachedFile,

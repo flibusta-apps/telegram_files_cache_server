@@ -45,6 +45,7 @@ Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
 - `DB_MAX_CONNECTIONS` — max Postgres pool connections (default: `10`).
 - `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
 - `CACHE_WARMUP_CONCURRENCY` — max concurrent `(book, type)` pairs processed per page during `POST /update_cache` warmup (default: `4`). Should stay below the number of `BOT_TOKENS` (round-robin bot pool size) to avoid saturating any single bot.
+- `CROSS_NORMALIZED_REUSE` — bool, default `true`. Kill switch for the cross-normalized reuse optimization: on a cache miss for `fb2`/`epub`/`mobi`/`fb2zip`, reuse the already-cached Telegram bytes of the *opposite* `is_normalized` variant (re-fetched fast from the internal `files_server`, and for `fb2zip` unzipped/re-zipped under the target filename) instead of re-fetching from the slower external source mirror. Set to `false` to always cold-rebuild.
 - `SENTRY_DSN` — Sentry error reporting DSN; Sentry is disabled (no-op) when unset.
 
 ## SQLx

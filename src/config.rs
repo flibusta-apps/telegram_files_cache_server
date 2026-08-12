@@ -14,6 +14,8 @@ pub struct Config {
 
     pub cache_warmup_concurrency: usize,
 
+    pub cross_normalized_reuse: bool,
+
     pub downloader_api_key: String,
     pub downloader_url: String,
 
@@ -59,6 +61,11 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(4),
+
+            cross_normalized_reuse: std::env::var("CROSS_NORMALIZED_REUSE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(true),
 
             downloader_api_key: get_env("DOWNLOADER_API_KEY"),
             downloader_url: get_env("DOWNLOADER_URL"),
