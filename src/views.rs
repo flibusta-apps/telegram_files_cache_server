@@ -21,7 +21,8 @@ use crate::{
     services::{
         current_update_cache_status, delete_telegram_message, download_from_cache,
         download_utils::{build_download_headers, get_response_async_read},
-        get_cached_file_copy, get_cached_file_or_cache, try_start_update_cache,
+        get_cached_file_copy, get_cached_file_or_cache, is_definitive_not_found_error,
+        try_start_update_cache,
     },
 };
 
@@ -146,6 +147,51 @@ async fn download_cached_file(
                         object_type = %object_type_for_log,
                         error = ?err,
                         "failed to download from cache on retry"
+                    );
+                    return StatusCode::BAD_GATEWAY.into_response();
+                }
+            }
+        }
+        Err(err) if is_definitive_not_found_error(&*err) => {
+            // `download_from_cache` already evicted the stale row on this definitive
+            // 404/410 before returning. Re-fetch (rebuilding the cache entry) and retry
+            // once within this same request, mirroring the `Ok(None)` branch above —
+            // otherwise this request gets a spurious 502 even though the very next
+            // request would have rebuilt the entry successfully.
+            tracing::warn!(
+                object_id,
+                object_type = %object_type,
+                error = ?err,
+                "cache entry was stale (definitive not-found); rebuilding and retrying"
+            );
+
+            let object_type_for_log = object_type.clone();
+            let cached_file =
+                match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone())
+                    .await
+                {
+                    Ok(Some(v)) => v,
+                    Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                    Err(err) => {
+                        tracing::error!(
+                            object_id,
+                            object_type = %object_type_for_log,
+                            error = ?err,
+                            "failed to get cached file on stale-entry retry"
+                        );
+                        return StatusCode::BAD_GATEWAY.into_response();
+                    }
+                };
+
+            match download_from_cache(cached_file, db).await {
+                Ok(Some(v)) => v,
+                Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                Err(err) => {
+                    tracing::error!(
+                        object_id,
+                        object_type = %object_type_for_log,
+                        error = ?err,
+                        "failed to download from cache on stale-entry retry"
                     );
                     return StatusCode::BAD_GATEWAY.into_response();
                 }

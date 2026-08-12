@@ -372,6 +372,27 @@ pub async fn cache_file(
     Ok(Some(cached))
 }
 
+/// A definitive "the referenced Telegram message no longer exists" signal (404/410).
+/// Distinguishes cache staleness (row should be evicted and rebuilt) from transient
+/// upstream failures (5xx / timeouts / connect errors), which must not evict a valid
+/// cache entry. Shared between `download_from_cache`'s own eviction check and
+/// `views::download_cached_file`'s decision to retry-rebuild within the same request.
+pub fn is_definitive_not_found_status(status: Option<StatusCode>) -> bool {
+    status.is_some_and(|status| status == StatusCode::NOT_FOUND || status == StatusCode::GONE)
+}
+
+/// Extracts the upstream HTTP status from a boxed error, if it carries one (i.e. it's a
+/// `reqwest::Error` produced via `.error_for_status()`), and reports whether that status
+/// is a definitive "gone" signal per [`is_definitive_not_found_status`].
+pub fn is_definitive_not_found_error(
+    err: &(dyn std::error::Error + Send + Sync + 'static),
+) -> bool {
+    let status = err
+        .downcast_ref::<reqwest::Error>()
+        .and_then(|e| e.status());
+    is_definitive_not_found_status(status)
+}
+
 #[tracing::instrument(skip(db, cached_data), fields(object_id = cached_data.object_id, object_type = %cached_data.object_type))]
 pub async fn download_from_cache(
     cached_data: CachedFile,
@@ -416,9 +437,7 @@ pub async fn download_from_cache(
             let status = err
                 .downcast_ref::<reqwest::Error>()
                 .and_then(|e| e.status());
-            let should_evict = status.is_some_and(|status| {
-                status == StatusCode::NOT_FOUND || status == StatusCode::GONE
-            });
+            let should_evict = is_definitive_not_found_status(status);
 
             if should_evict {
                 let cached_file_repo = CachedFileRepository::new(db.clone());
