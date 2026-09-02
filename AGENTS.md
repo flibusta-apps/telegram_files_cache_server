@@ -18,7 +18,7 @@ cargo check                                               # fast compile check
 
 Tests exist under `tests/` (router-level and query-parsing tests) and as `#[cfg(test)]` unit tests inside `src/` (e.g. `services::retry`, `services::book_library::types`, `services::download_utils`). Run them with `cargo test`. Router-level tests build the real router with a lazy (no I/O) `PgPool` and never touch a live database or network, except for one fast local connect-refused check in the retry-classification test.
 
-Pre-commit runs: `fmt` → `cargo-check` → `clippy`.
+Lefthook runs: `fmt` → `cargo-check` → `clippy`.
 
 ## Architecture
 
