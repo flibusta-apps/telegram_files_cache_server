@@ -25,6 +25,10 @@ pub enum ReuseKind {
     /// name), so the opposite variant's bytes must be unzipped and re-zipped under the
     /// target filename.
     RepackZip { inner_type: &'static str },
+    /// The source row is a plain (non-zip) object of `inner_type` for the same
+    /// `object_id`; its bytes are wrapped into a single-entry zip named after the
+    /// target `inner_type` filename.
+    WrapZip { inner_type: &'static str },
 }
 
 /// Default-deny allowlist of object types eligible for cross-normalized reuse.
@@ -38,6 +42,22 @@ pub fn reuse_kind(object_type: &str) -> Option<ReuseKind> {
         "fb2zip" => Some(ReuseKind::RepackZip { inner_type: "fb2" }),
         _ => None,
     }
+}
+
+/// Fallback used when the opposite-normalized source of the *same* object type is not
+/// cached: a plain cached object of another type that can be wrapped into the
+/// requested type. Currently only `fb2zip` (= `fb2` inside a single-entry zip).
+pub fn wrap_fallback(object_type: &str) -> Option<ReuseKind> {
+    match object_type {
+        "fb2zip" => Some(ReuseKind::WrapZip { inner_type: "fb2" }),
+        _ => None,
+    }
+}
+
+/// Preference order of `is_normalized` values when looking up a wrap source: the same
+/// variant first, then the opposite one.
+fn wrap_source_preference(is_normalized: bool) -> [bool; 2] {
+    [is_normalized, !is_normalized]
 }
 
 pub enum ReuseOutcome {
@@ -93,7 +113,15 @@ pub async fn try_reuse_from_opposite_normalized(
             );
             metrics::counter!("cross_normalized_reuse_total", "outcome" => "no_source")
                 .increment(1);
-            return Ok(ReuseOutcome::NotEligible);
+            return try_wrap_from_plain(
+                object_id,
+                object_type,
+                is_normalized,
+                db,
+                caption,
+                max_retries,
+            )
+            .await;
         }
         Err(err) => {
             tracing::warn!(
@@ -132,6 +160,78 @@ pub async fn try_reuse_from_opposite_normalized(
     .await
 }
 
+/// Fallback for `fb2zip`: wraps an already-cached `fb2` row (same `is_normalized`
+/// preferred, then opposite) of the same `object_id` into a single-entry zip.
+/// Any failure results in `NotEligible` so the caller falls back to the cold path.
+async fn try_wrap_from_plain(
+    object_id: i32,
+    object_type: &str,
+    is_normalized: bool,
+    db: &Database,
+    caption: &str,
+    max_retries: u32,
+) -> Result<ReuseOutcome, Box<dyn std::error::Error + Send + Sync>> {
+    let Some(kind) = wrap_fallback(object_type) else {
+        return Ok(ReuseOutcome::NotEligible);
+    };
+    let ReuseKind::WrapZip { inner_type } = kind else {
+        return Ok(ReuseOutcome::NotEligible);
+    };
+
+    let repo = CachedFileRepository::new(db.clone());
+    let mut source = None;
+    for candidate in wrap_source_preference(is_normalized) {
+        match repo
+            .find_by_object_id_object_type_is_normalized(
+                object_id,
+                inner_type.to_string(),
+                candidate,
+            )
+            .await
+        {
+            Ok(Some(v)) => {
+                source = Some(v);
+                break;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                tracing::warn!(
+                    object_id,
+                    object_type,
+                    inner_type,
+                    error = ?err,
+                    "cross_normalized_reuse: failed to look up wrap source"
+                );
+                metrics::counter!("cross_normalized_reuse_total", "outcome" => "db_error")
+                    .increment(1);
+                return Ok(ReuseOutcome::NotEligible);
+            }
+        }
+    }
+
+    let Some(source) = source else {
+        tracing::debug!(
+            object_id,
+            object_type,
+            inner_type,
+            "cross_normalized_reuse: no wrap source cached"
+        );
+        metrics::counter!("cross_normalized_reuse_total", "outcome" => "no_source").increment(1);
+        return Ok(ReuseOutcome::NotEligible);
+    };
+
+    reuse_from_source(
+        &source,
+        object_id,
+        object_type,
+        is_normalized,
+        kind,
+        caption,
+        max_retries,
+    )
+    .await
+}
+
 pub(crate) async fn reuse_from_source(
     source: &CachedFile,
     object_id: i32,
@@ -142,7 +242,7 @@ pub(crate) async fn reuse_from_source(
     max_retries: u32,
 ) -> Result<ReuseOutcome, Box<dyn std::error::Error + Send + Sync>> {
     let inner_type = match kind {
-        ReuseKind::RepackZip { inner_type } => Some(inner_type),
+        ReuseKind::RepackZip { inner_type } | ReuseKind::WrapZip { inner_type } => Some(inner_type),
         ReuseKind::IdenticalBytes => None,
     };
 
@@ -258,6 +358,48 @@ pub(crate) async fn reuse_from_source(
 
     let final_bytes = match kind {
         ReuseKind::IdenticalBytes => source_bytes.to_vec(),
+        ReuseKind::WrapZip { inner_type } => {
+            let inner_filename = inner_filename
+                .expect("inner_filename must be resolved for WrapZip reuse kind")
+                .filename;
+
+            let stored = is_precompressed_file_type(inner_type);
+            let wrap_result = tokio::task::spawn_blocking(move || {
+                build_single_entry_zip(
+                    &source_bytes,
+                    &inner_filename,
+                    ZIP_COMPRESSION_LEVEL,
+                    stored,
+                )
+            })
+            .await;
+
+            match wrap_result {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(err)) => {
+                    tracing::warn!(
+                        object_id,
+                        object_type,
+                        error = ?err,
+                        "cross_normalized_reuse: failed to wrap source into zip"
+                    );
+                    metrics::counter!("cross_normalized_reuse_total", "outcome" => "repack_failed")
+                        .increment(1);
+                    return Ok(ReuseOutcome::NotEligible);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        object_id,
+                        object_type,
+                        error = ?err,
+                        "cross_normalized_reuse: wrap task panicked/was cancelled"
+                    );
+                    metrics::counter!("cross_normalized_reuse_total", "outcome" => "repack_failed")
+                        .increment(1);
+                    return Ok(ReuseOutcome::NotEligible);
+                }
+            }
+        }
         ReuseKind::RepackZip { inner_type } => {
             let inner_filename = inner_filename
                 .expect("inner_filename must be resolved for RepackZip reuse kind")
@@ -313,7 +455,22 @@ pub(crate) async fn reuse_from_source(
     )
     .await?;
 
-    metrics::counter!("cross_normalized_reuse_total", "outcome" => "reused").increment(1);
+    match kind {
+        ReuseKind::WrapZip { .. } => {
+            tracing::info!(
+                object_id,
+                object_type,
+                source_type = source.object_type,
+                source_is_normalized = source.is_normalized,
+                "cross_normalized_reuse: wrapped_from_fb2"
+            );
+            metrics::counter!("cross_normalized_reuse_total", "outcome" => "wrapped_from_fb2")
+                .increment(1);
+        }
+        _ => {
+            metrics::counter!("cross_normalized_reuse_total", "outcome" => "reused").increment(1);
+        }
+    }
 
     Ok(ReuseOutcome::Uploaded(upload_result))
 }
@@ -337,5 +494,41 @@ mod tests {
         assert_eq!(reuse_kind("FB2"), None);
         assert_eq!(reuse_kind("book"), None);
         assert_eq!(reuse_kind("../admin"), None);
+    }
+
+    #[test]
+    fn wrap_fallback_only_for_fb2zip() {
+        assert_eq!(
+            wrap_fallback("fb2zip"),
+            Some(ReuseKind::WrapZip { inner_type: "fb2" })
+        );
+        for t in ["fb2", "epub", "mobi", "html", "", "FB2ZIP"] {
+            assert_eq!(wrap_fallback(t), None, "{t}");
+        }
+    }
+
+    #[test]
+    fn wrap_source_prefers_same_normalization() {
+        assert_eq!(wrap_source_preference(true), [true, false]);
+        assert_eq!(wrap_source_preference(false), [false, true]);
+    }
+
+    #[test]
+    fn wrapping_produces_single_entry_zip_with_exact_bytes() {
+        use std::io::Read;
+
+        let content = b"<?xml version=\"1.0\"?><FictionBook>hello \xd0\x9f</FictionBook>".to_vec();
+        let stored = is_precompressed_file_type("fb2");
+        assert!(!stored);
+        let zipped =
+            build_single_entry_zip(&content, "book.fb2", ZIP_COMPRESSION_LEVEL, stored).unwrap();
+
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zipped)).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut entry = archive.by_index(0).unwrap();
+        assert_eq!(entry.name(), "book.fb2");
+        let mut out = Vec::new();
+        entry.read_to_end(&mut out).unwrap();
+        assert_eq!(out, content);
     }
 }
