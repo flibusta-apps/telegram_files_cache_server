@@ -9,8 +9,13 @@ use reqwest::{
 use serde::Deserialize;
 
 use crate::config::CONFIG;
+use crate::error::check_status;
 use crate::http_client::CLIENT;
+use crate::services::download_utils::read_body_capped;
 use crate::services::retry::{is_transient_error, retry_connect_only, retry_transient};
+
+/// Upper bound for a buffered downloader response before it is uploaded.
+const MAX_UPLOAD_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Deserialize)]
 pub struct UploadData {
@@ -41,11 +46,9 @@ pub async fn download_from_telegram_files(
             .timeout(Duration::from_secs(120))
             .send()
             .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
-            .error_for_status()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        Ok(response)
+        check_status(response).await
     })
     .await
 }
@@ -93,15 +96,16 @@ pub async fn upload_bytes_to_telegram_files(
                 .text("filename", filename)
                 .part("file", part);
 
+            // `timeout` is a total deadline (connect + upload + reading the response body).
             let response = CLIENT
                 .post(&url)
                 .header("Authorization", CONFIG.files_api_key.clone())
+                .timeout(Duration::from_secs(CONFIG.upload_timeout_secs))
                 .multipart(form)
                 .send()
                 .await
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
-                .error_for_status()
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            let response = check_status(response).await?;
 
             let text = response
                 .text()
@@ -171,10 +175,7 @@ pub async fn upload_to_telegram_files(
     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
     .to_string();
 
-    let bytes = data_response
-        .bytes()
-        .await
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+    let bytes = read_body_capped(data_response, MAX_UPLOAD_BYTES).await?;
 
     upload_bytes_to_telegram_files(
         UploadPayload {

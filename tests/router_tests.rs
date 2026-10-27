@@ -40,7 +40,7 @@ async fn test_app() -> axum::Router {
             ("LIBRARY_URL", "http://127.0.0.1:1"),
             ("FILES_SERVER_API_KEY", "test"),
             ("FILES_SERVER_URL", "http://127.0.0.1:1"),
-            ("BOT_TOKENS", "[]"),
+            ("BOT_TOKENS", "[\"1:test\"]"),
             ("TEMP_CHANNEL_ID", "1"),
         ] {
             if std::env::var(k).is_err() {

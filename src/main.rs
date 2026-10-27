@@ -19,7 +19,7 @@ async fn main() {
 
     let options = ClientOptions {
         dsn,
-        default_integrations: false,
+        default_integrations: true,
         ..Default::default()
     }
     .add_integration(DebugImagesIntegration::new());

@@ -1,5 +1,7 @@
 pub mod config;
 pub mod db;
+pub mod error;
+pub mod file_type;
 pub mod http_client;
 pub mod repository;
 pub mod serializers;

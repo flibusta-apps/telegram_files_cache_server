@@ -1,23 +1,25 @@
 use crate::config::CONFIG;
 
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{
+    postgres::{PgConnectOptions, PgPoolOptions},
+    PgPool,
+};
 
 pub async fn get_pg_pool() -> PgPool {
-    let database_url: String = format!(
-        "postgresql://{}:{}@{}:{}/{}",
-        CONFIG.postgres_user,
-        CONFIG.postgres_password,
-        CONFIG.postgres_host,
-        CONFIG.postgres_port,
-        CONFIG.postgres_db
-    );
+    let options = PgConnectOptions::new()
+        .host(&CONFIG.postgres_host)
+        .port(CONFIG.postgres_port)
+        .username(&CONFIG.postgres_user)
+        .password(&CONFIG.postgres_password)
+        .database(&CONFIG.postgres_db)
+        .application_name("telegram_files_cache_server");
 
     PgPoolOptions::new()
         .max_connections(CONFIG.db_max_connections)
         .acquire_timeout(std::time::Duration::from_secs(
             CONFIG.db_acquire_timeout_secs,
         ))
-        .connect(&database_url)
+        .connect_with(options)
         .await
         .unwrap()
 }

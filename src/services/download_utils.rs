@@ -19,6 +19,33 @@ pub fn get_response_async_read(it: Response) -> impl AsyncRead {
         .compat()
 }
 
+/// Reads a response body into memory, refusing up-front when `Content-Length` exceeds
+/// `max_bytes` and enforcing the same cap while streaming (chunked / lying servers).
+pub async fn read_body_capped(
+    response: Response,
+    max_bytes: usize,
+) -> Result<bytes::Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(len) = response.content_length() {
+        if len > max_bytes as u64 {
+            return Err(Box::new(std::io::Error::other(format!(
+                "response body too large: {len} > {max_bytes} bytes"
+            ))));
+        }
+    }
+
+    let mut stream = response.bytes_stream();
+    let mut buf = bytes::BytesMut::new();
+    while let Some(chunk) = stream.try_next().await? {
+        if buf.len() + chunk.len() > max_bytes {
+            return Err(Box::new(std::io::Error::other(format!(
+                "response body exceeded {max_bytes} bytes"
+            ))));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf.freeze())
+}
+
 const FALLBACK_FILENAME: &str = "file.bin";
 
 pub fn sanitize_content_disposition_filename(filename_ascii: &str) -> String {

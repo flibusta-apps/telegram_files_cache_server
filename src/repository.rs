@@ -49,4 +49,17 @@ impl CachedFileRepository {
         .fetch_optional(&self.db)
         .await
     }
+
+    /// Deletes exactly the row version that was read. Returns whether a row was deleted.
+    pub async fn delete_exact(&self, row: &CachedFile) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            "DELETE FROM cached_files WHERE id = $1 AND chat_id = $2 AND message_id = $3",
+        )
+        .bind(row.id)
+        .bind(row.chat_id)
+        .bind(row.message_id)
+        .execute(&self.db)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }

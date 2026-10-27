@@ -1,4 +1,4 @@
-#[derive(sqlx::FromRow, serde::Serialize)]
+#[derive(sqlx::FromRow, serde::Serialize, Clone, Debug)]
 pub struct CachedFile {
     pub id: i32,
     pub object_id: i32,

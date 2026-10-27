@@ -6,13 +6,15 @@ pub struct Config {
     pub postgres_user: String,
     pub postgres_password: String,
     pub postgres_host: String,
-    pub postgres_port: u32,
+    pub postgres_port: u16,
     pub postgres_db: String,
 
     pub db_max_connections: u32,
     pub db_acquire_timeout_secs: u64,
 
     pub cache_warmup_concurrency: usize,
+
+    pub upload_timeout_secs: u64,
 
     pub cross_normalized_reuse: bool,
 
@@ -35,45 +37,54 @@ fn get_env(env: &'static str) -> String {
     std::env::var(env).unwrap_or_else(|_| panic!("Cannot get the {} env variable", env))
 }
 
+fn get_secret(env: &'static str) -> String {
+    let v = get_env(env);
+    if v.trim().is_empty() {
+        panic!("The {} env variable must not be empty", env);
+    }
+    v
+}
+
+/// Optional numeric env var: unset → default; set but unparsable → startup failure.
+fn get_parsed_or<T: std::str::FromStr>(env: &'static str, default: T) -> T {
+    match std::env::var(env) {
+        Err(_) => default,
+        Ok(v) => v
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("The {} env variable is not a valid number: {:?}", env, v)),
+    }
+}
+
 impl Config {
     pub fn load() -> Config {
-        Config {
-            api_key: get_env("API_KEY"),
+        let config = Config {
+            api_key: get_secret("API_KEY"),
 
             postgres_user: get_env("POSTGRES_USER"),
             postgres_password: get_env("POSTGRES_PASSWORD"),
             postgres_host: get_env("POSTGRES_HOST"),
             postgres_port: get_env("POSTGRES_PORT")
                 .parse()
-                .expect("POSTGRES_PORT must be a valid u32"),
+                .expect("POSTGRES_PORT must be a valid u16"),
             postgres_db: get_env("POSTGRES_DB"),
 
-            db_max_connections: std::env::var("DB_MAX_CONNECTIONS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(10),
-            db_acquire_timeout_secs: std::env::var("DB_ACQUIRE_TIMEOUT_SECS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(5),
+            db_max_connections: get_parsed_or("DB_MAX_CONNECTIONS", 10),
+            db_acquire_timeout_secs: get_parsed_or("DB_ACQUIRE_TIMEOUT_SECS", 5),
 
-            cache_warmup_concurrency: std::env::var("CACHE_WARMUP_CONCURRENCY")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(4),
+            cache_warmup_concurrency: get_parsed_or("CACHE_WARMUP_CONCURRENCY", 4),
 
-            cross_normalized_reuse: std::env::var("CROSS_NORMALIZED_REUSE")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(true),
+            upload_timeout_secs: get_parsed_or("UPLOAD_TIMEOUT_SECS", 600),
 
-            downloader_api_key: get_env("DOWNLOADER_API_KEY"),
+            cross_normalized_reuse: get_parsed_or("CROSS_NORMALIZED_REUSE", true),
+
+            downloader_api_key: get_secret("DOWNLOADER_API_KEY"),
             downloader_url: get_env("DOWNLOADER_URL"),
 
-            library_api_key: get_env("LIBRARY_API_KEY"),
+            library_api_key: get_secret("LIBRARY_API_KEY"),
             library_url: get_env("LIBRARY_URL"),
 
-            files_api_key: get_env("FILES_SERVER_API_KEY"),
+            files_api_key: get_secret("FILES_SERVER_API_KEY"),
             files_url: get_env("FILES_SERVER_URL"),
 
             bot_tokens: serde_json::from_str(&get_env("BOT_TOKENS"))
@@ -83,7 +94,29 @@ impl Config {
                 .expect("TEMP_CHANNEL_ID must be a valid i64"),
 
             sentry_dsn: std::env::var("SENTRY_DSN").ok(),
-        }
+        };
+        config.validate();
+        config
+    }
+
+    fn validate(&self) {
+        assert!(!self.bot_tokens.is_empty(), "BOT_TOKENS must not be empty");
+        assert!(
+            self.cache_warmup_concurrency > 0,
+            "CACHE_WARMUP_CONCURRENCY must be > 0"
+        );
+        assert!(
+            self.db_max_connections > 0,
+            "DB_MAX_CONNECTIONS must be > 0"
+        );
+        assert!(
+            self.db_acquire_timeout_secs > 0,
+            "DB_ACQUIRE_TIMEOUT_SECS must be > 0"
+        );
+        assert!(
+            self.upload_timeout_secs > 0,
+            "UPLOAD_TIMEOUT_SECS must be > 0"
+        );
     }
 }
 

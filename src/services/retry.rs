@@ -76,11 +76,11 @@ where
             Ok(result) => return Ok(result),
             Err(err) => {
                 let is_reqwest_error = err.downcast_ref::<reqwest::Error>().is_some();
-                if is_reqwest_error && attempt < max_retries - 1 {
+                if is_reqwest_error && attempt + 1 < max_retries {
                     let reqwest_err = err.downcast_ref::<reqwest::Error>().unwrap();
                     if is_retryable(reqwest_err) {
                         attempt += 1;
-                        let base = Duration::from_secs(2u64.pow(attempt));
+                        let base = Duration::from_secs(2u64.pow(attempt.min(6)));
                         let jitter_ms = rand::thread_rng().gen_range(0..500u64);
                         let delay = base + Duration::from_millis(jitter_ms);
                         tracing::warn!(
@@ -142,5 +142,49 @@ mod tests {
         // touching the network.
         let err = client.get("http://127.0.0.1:1/").send().await.unwrap_err();
         assert!(is_transient_error(&err));
+    }
+
+    #[tokio::test]
+    async fn retry_with_zero_max_retries_does_not_underflow() {
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let result: Result<(), _> = retry_with(
+            0,
+            |_| true,
+            || async {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err::<(), Box<dyn Error + Send + Sync>>(Box::new(std::io::Error::other("x")))
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_with_does_not_retry_non_reqwest_errors() {
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let result: Result<(), _> = retry_with(
+            3,
+            |_| true,
+            || async {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err::<(), Box<dyn Error + Send + Sync>>(Box::new(std::io::Error::other("x")))
+            },
+        )
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_with_returns_ok_immediately() {
+        let result = retry_with(
+            3,
+            |_| true,
+            || async { Ok::<_, Box<dyn Error + Send + Sync>>(5) },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, 5);
     }
 }

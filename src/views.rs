@@ -16,6 +16,8 @@ use tracing::Level;
 
 use crate::{
     config::CONFIG,
+    error::error_response,
+    file_type::ObjectType,
     repository::CachedFileRepository,
     serializers::CachedFile,
     services::{
@@ -48,10 +50,14 @@ pub struct GetCachedFileQuery {
 /// `created_at` on the returned row can help consumers decide how much to trust an old,
 /// never-copied/never-downloaded entry.
 async fn get_cached_file(
-    Path((object_id, object_type)): Path<(i32, String)>,
+    Path((object_id, object_type)): Path<(i32, ObjectType)>,
     Query(GetCachedFileQuery { copy, normalized }): Query<GetCachedFileQuery>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
+    if object_id <= 0 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let object_type = object_type.as_str().to_string();
     let is_normalized = normalized.unwrap_or(true);
     let object_type_for_log = object_type.clone();
     let cached_file =
@@ -65,7 +71,7 @@ async fn get_cached_file(
                     error = ?err,
                     "failed to get cached file"
                 );
-                return StatusCode::BAD_GATEWAY.into_response();
+                return error_response(&*err);
             }
         };
 
@@ -83,7 +89,7 @@ async fn get_cached_file(
                 error = ?err,
                 "failed to copy cached file"
             );
-            StatusCode::BAD_GATEWAY.into_response()
+            error_response(&*err)
         }
     }
 }
@@ -95,10 +101,14 @@ pub struct DownloadCachedFileQuery {
 }
 
 async fn download_cached_file(
-    Path((object_id, object_type)): Path<(i32, String)>,
+    Path((object_id, object_type)): Path<(i32, ObjectType)>,
     Query(DownloadCachedFileQuery { normalized }): Query<DownloadCachedFileQuery>,
     Extension(Ext { db }): Extension<Ext>,
 ) -> impl IntoResponse {
+    if object_id <= 0 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let object_type = object_type.as_str().to_string();
     let is_normalized = normalized.unwrap_or(true);
     let cached_file =
         match get_cached_file_or_cache(object_id, object_type.clone(), is_normalized, db.clone())
@@ -113,7 +123,7 @@ async fn download_cached_file(
                     error = ?err,
                     "failed to get cached file"
                 );
-                return StatusCode::BAD_GATEWAY.into_response();
+                return error_response(&*err);
             }
         };
 
@@ -134,7 +144,7 @@ async fn download_cached_file(
                             error = ?err,
                             "failed to get cached file on re-cache retry"
                         );
-                        return StatusCode::BAD_GATEWAY.into_response();
+                        return error_response(&*err);
                     }
                 };
 
@@ -148,7 +158,7 @@ async fn download_cached_file(
                         error = ?err,
                         "failed to download from cache on retry"
                     );
-                    return StatusCode::BAD_GATEWAY.into_response();
+                    return error_response(&*err);
                 }
             }
         }
@@ -179,7 +189,7 @@ async fn download_cached_file(
                             error = ?err,
                             "failed to get cached file on stale-entry retry"
                         );
-                        return StatusCode::BAD_GATEWAY.into_response();
+                        return error_response(&*err);
                     }
                 };
 
@@ -193,7 +203,7 @@ async fn download_cached_file(
                         error = ?err,
                         "failed to download from cache on stale-entry retry"
                     );
-                    return StatusCode::BAD_GATEWAY.into_response();
+                    return error_response(&*err);
                 }
             }
         }
@@ -204,7 +214,7 @@ async fn download_cached_file(
                 error = ?err,
                 "failed to download from cache"
             );
-            return StatusCode::BAD_GATEWAY.into_response();
+            return error_response(&*err);
         }
     };
 
@@ -235,10 +245,14 @@ pub struct DeleteCachedFileQuery {
 }
 
 async fn delete_cached_file(
-    Path((object_id, object_type)): Path<(i32, String)>,
+    Path((object_id, object_type)): Path<(i32, ObjectType)>,
     Query(DeleteCachedFileQuery { normalized }): Query<DeleteCachedFileQuery>,
     Extension(Ext { db, .. }): Extension<Ext>,
 ) -> impl IntoResponse {
+    if object_id <= 0 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let object_type = object_type.as_str().to_string();
     let is_normalized = normalized.unwrap_or(true);
     let object_type_for_log = object_type.clone();
     let cached_file: Option<CachedFile> = match CachedFileRepository::new(db)
@@ -253,7 +267,7 @@ async fn delete_cached_file(
                 error = ?err,
                 "failed to delete cached file"
             );
-            return StatusCode::BAD_GATEWAY.into_response();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
