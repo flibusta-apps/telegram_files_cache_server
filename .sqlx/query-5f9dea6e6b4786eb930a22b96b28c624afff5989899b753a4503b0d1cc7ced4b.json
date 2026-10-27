@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM cached_files WHERE id = $1 AND chat_id = $2 AND message_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f9dea6e6b4786eb930a22b96b28c624afff5989899b753a4503b0d1cc7ced4b"
+}

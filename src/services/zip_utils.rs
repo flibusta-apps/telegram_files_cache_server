@@ -41,7 +41,7 @@ pub fn extract_single_entry(
 
     for i in 0..zip_archive.len() {
         let mut file = zip_archive.by_index(i).map_err(|_| ZipError::BadArchive)?;
-        let filename = file.name();
+        let filename = file.name().map_err(|_| ZipError::BadArchive)?.into_owned();
 
         let matches_ext = filename
             .rsplit('.')
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(reopened.len(), 1);
 
         let mut entry = reopened.by_index(0).unwrap();
-        assert_eq!(entry.name(), new_name);
+        assert_eq!(entry.name().unwrap(), new_name);
 
         let mut entry_content = Vec::new();
         std::io::Read::read_to_end(&mut entry, &mut entry_content).unwrap();

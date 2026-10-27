@@ -34,9 +34,7 @@ where
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
-            let response = response
-                .error_for_status()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            let response = crate::error::check_status(response).await?;
 
             let text = response
                 .text()
@@ -85,5 +83,5 @@ pub async fn get_books(
         ("uploaded_lte", uploaded_lte),
     ];
 
-    _make_request("/api/v1/books/base/", params, max_retries).await
+    _make_request("/api/v1/books/base", params, max_retries).await
 }

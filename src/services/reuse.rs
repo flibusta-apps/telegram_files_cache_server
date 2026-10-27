@@ -3,6 +3,7 @@ use reqwest::StatusCode;
 use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
 
 use super::{
+    download_utils::read_body_capped,
     downloader::get_filename,
     telegram_files::{
         download_from_telegram_files, upload_bytes_to_telegram_files, UploadData, UploadPayload,
@@ -297,7 +298,7 @@ pub(crate) async fn reuse_from_source(
         }
     };
 
-    let source_bytes = match response.bytes().await {
+    let source_bytes = match read_body_capped(response, MAX_REUSE_BYTES).await {
         Ok(v) => v,
         Err(err) => {
             tracing::warn!(
@@ -357,7 +358,7 @@ pub(crate) async fn reuse_from_source(
     let document_filename = target_filename.filename_ascii;
 
     let final_bytes = match kind {
-        ReuseKind::IdenticalBytes => source_bytes.to_vec(),
+        ReuseKind::IdenticalBytes => source_bytes,
         ReuseKind::WrapZip { inner_type } => {
             let inner_filename = inner_filename
                 .expect("inner_filename must be resolved for WrapZip reuse kind")
@@ -375,7 +376,7 @@ pub(crate) async fn reuse_from_source(
             .await;
 
             match wrap_result {
-                Ok(Ok(bytes)) => bytes,
+                Ok(Ok(bytes)) => bytes::Bytes::from(bytes),
                 Ok(Err(err)) => {
                     tracing::warn!(
                         object_id,
@@ -418,7 +419,7 @@ pub(crate) async fn reuse_from_source(
             .await;
 
             match repack_result {
-                Ok(Ok(bytes)) => bytes,
+                Ok(Ok(bytes)) => bytes::Bytes::from(bytes),
                 Ok(Err(err)) => {
                     tracing::warn!(
                         object_id,
@@ -447,7 +448,7 @@ pub(crate) async fn reuse_from_source(
 
     let upload_result = upload_bytes_to_telegram_files(
         UploadPayload {
-            bytes: final_bytes.into(),
+            bytes: final_bytes,
             filename: document_filename,
             caption: caption.to_string(),
         },
@@ -526,7 +527,7 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zipped)).unwrap();
         assert_eq!(archive.len(), 1);
         let mut entry = archive.by_index(0).unwrap();
-        assert_eq!(entry.name(), "book.fb2");
+        assert_eq!(entry.name().unwrap(), "book.fb2");
         let mut out = Vec::new();
         entry.read_to_end(&mut out).unwrap();
         assert_eq!(out, content);

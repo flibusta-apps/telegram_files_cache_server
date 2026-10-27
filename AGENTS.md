@@ -28,7 +28,7 @@ Lefthook runs: `fmt` → `cargo-check` → `clippy`.
   - `GET /download/{object_id}/{object_type}/` — stream file content
   - `DELETE /{object_id}/{object_type}/` — delete cache entry (also best-effort deletes the underlying Telegram message)
   - `POST /update_cache` — async cache warmup (fetches books from last 3 days); returns 200 with status JSON if started, 409 with last-run status JSON if a scan is already in progress (concurrent calls coalesce onto one scan)
-  - `GET /metrics` — Prometheus metrics (no auth)
+  - `GET /metrics` — Prometheus metrics (requires `Authorization: <API_KEY>`)
   - `GET /health` — health check (no auth)
 - **Services**: `book_library` (external API), `downloader` (file download), `telegram_files` (upload/download via Telegram bots, round-robin).
 - **Config**: `src/config.rs` — global `CONFIG` static loaded from env vars at startup via `dotenvy`.
@@ -46,6 +46,7 @@ Lefthook runs: `fmt` → `cargo-check` → `clippy`.
 - `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
 - `CACHE_WARMUP_CONCURRENCY` — max concurrent `(book, type)` pairs processed per page during `POST /update_cache` warmup (default: `4`). Should stay below the number of `BOT_TOKENS` (round-robin bot pool size) to avoid saturating any single bot.
 - `CROSS_NORMALIZED_REUSE` — bool, default `true`. Kill switch for the cross-normalized reuse optimization: on a cache miss for `fb2`/`epub`/`mobi`/`fb2zip`, reuse the already-cached Telegram bytes of the *opposite* `is_normalized` variant (re-fetched fast from the internal `files_server`, and for `fb2zip` unzipped/re-zipped under the target filename) instead of re-fetching from the slower external source mirror; additionally, a `fb2zip` miss with no cached `fb2zip` variant is satisfied by wrapping an already-cached `fb2` row (same `is_normalized` preferred) into a single-entry zip. Set to `false` to always cold-rebuild.
+- `UPLOAD_TIMEOUT_SECS` — total timeout for the upload POST to the files server (default: `600`).
 - `SENTRY_DSN` — Sentry error reporting DSN; Sentry is disabled (no-op) when unset.
 
 ## SQLx

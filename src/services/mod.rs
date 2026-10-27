@@ -8,23 +8,33 @@ pub mod telegram_files;
 pub mod warmup;
 pub mod zip_utils;
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use chrono::Duration;
-use moka::future::Cache;
+use futures::future::{BoxFuture, FutureExt, Shared};
 use once_cell::sync::Lazy;
 use reqwest::StatusCode;
 use serde::Serialize;
 use teloxide::{
     requests::Requester,
     types::{ChatId, MessageId, Recipient},
+    ApiError, RequestError,
 };
 use tracing::Instrument;
 
-use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
+use crate::{
+    config,
+    error::{rate_limit_secs, BoxError, SharedError},
+    repository::CachedFileRepository,
+    serializers::CachedFile,
+    views::Database,
+};
 
 use self::{
     book_library::{get_book, get_books},
@@ -49,73 +59,77 @@ pub struct CacheData {
 /// within this window, after which this server deletes it from the temp channel.
 const TEMP_MESSAGE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// Tracks temp-channel copies produced by `?copy=true` so they can be cleaned up after
-/// `TEMP_MESSAGE_TTL`. Keyed by the *temp message id* itself (unique per copy), not the
-/// cached-file id — this way concurrent copies of the same cached file never collide and
-/// evict/delete each other's still-in-use message.
-pub static TEMP_MESSAGES: Lazy<Cache<i32, ()>> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_live(TEMP_MESSAGE_TTL)
-        .max_capacity(4098)
-        .async_eviction_listener(|message_id, _value, _cause| {
-            Box::pin(async move {
-                let bot = ROUND_ROBIN_BOT.get_bot();
-                if let Err(err) = bot
-                    .delete_message(
-                        Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
-                        MessageId(*message_id),
-                    )
-                    .await
-                {
-                    tracing::warn!(
-                        "Failed to delete expired temp message {} from temp channel: {:?}",
-                        message_id,
-                        err
-                    );
-                }
-            })
-        })
-        .build()
-});
-
-/// Short-lived single-flight cache used to dedupe concurrent `cache_file` calls for the
-/// same `(object_id, object_type, is_normalized)` key. This only guards against
-/// duplicate concurrent Telegram uploads while a cache miss is being resolved; the
-/// database row remains the real source of truth once the entry is written. Entries are
-/// evicted quickly since we don't want to serve stale results from here.
-type CacheFileKey = (i32, String, bool);
-type CacheFileInflightCache = Cache<CacheFileKey, Arc<Option<CachedFile>>>;
-
-static CACHE_FILE_INFLIGHT: Lazy<CacheFileInflightCache> = Lazy::new(|| {
-    Cache::builder()
-        .time_to_idle(std::time::Duration::from_secs(5))
-        .max_capacity(256)
-        .build()
-});
-
-/// Wraps a shared (`Arc`-ed) error produced by a deduped `try_get_with` call so it can be
-/// propagated as a plain `Box<dyn Error + Send + Sync>`.
-#[derive(Debug)]
-struct SharedCacheError(Arc<Box<dyn std::error::Error + Send + Sync>>);
-
-impl std::fmt::Display for SharedCacheError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+/// Schedules deletion of a temp-channel copy after `TEMP_MESSAGE_TTL`. Each copy gets its
+/// own sleeping task, so (unlike a capacity-bounded cache) live copies are never deleted
+/// early because of eviction pressure.
+fn schedule_temp_message_deletion(message_id: i32) {
+    tokio::spawn(async move {
+        tokio::time::sleep(TEMP_MESSAGE_TTL).await;
+        let bot = ROUND_ROBIN_BOT.get_bot();
+        if let Err(err) = bot
+            .delete_message(
+                Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
+                MessageId(message_id),
+            )
+            .await
+        {
+            tracing::warn!(
+                "Failed to delete expired temp message {} from temp channel: {:?}",
+                message_id,
+                err
+            );
+        }
+    });
 }
 
-impl std::error::Error for SharedCacheError {}
+/// Single-flight registry: dedupes only *in-flight* `cache_file` calls for the same
+/// `(object_id, object_type, is_normalized)` key. The entry removes itself the moment the
+/// operation finishes, so finished results are never served from here — the database row
+/// is the source of truth.
+type CacheFileKey = (i32, String, bool);
+type FlightResult = Result<Option<CachedFile>, SharedError>;
+type Flight = Shared<BoxFuture<'static, FlightResult>>;
 
-fn clone_cached_file(cached_file: &CachedFile) -> CachedFile {
-    CachedFile {
-        id: cached_file.id,
-        object_id: cached_file.object_id,
-        object_type: cached_file.object_type.clone(),
-        is_normalized: cached_file.is_normalized,
-        message_id: cached_file.message_id,
-        chat_id: cached_file.chat_id,
-        created_at: cached_file.created_at,
-    }
+static CACHE_FILE_INFLIGHT: Lazy<Mutex<HashMap<CacheFileKey, Flight>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn lock_inflight() -> std::sync::MutexGuard<'static, HashMap<CacheFileKey, Flight>> {
+    CACHE_FILE_INFLIGHT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Runs `cache_file` through the single-flight registry. Used both by request handlers
+/// and by the warmup job so they never upload the same file concurrently.
+pub async fn cache_file_single_flight(
+    object_id: i32,
+    object_type: String,
+    is_normalized: bool,
+    db: Database,
+    max_retries: u32,
+) -> Result<Option<CachedFile>, BoxError> {
+    let key: CacheFileKey = (object_id, object_type.clone(), is_normalized);
+
+    let flight = {
+        let mut map = lock_inflight();
+        if let Some(existing) = map.get(&key) {
+            existing.clone()
+        } else {
+            let key_for_cleanup = key.clone();
+            let fut: BoxFuture<'static, FlightResult> = async move {
+                let result =
+                    cache_file(object_id, object_type, is_normalized, db, max_retries).await;
+                lock_inflight().remove(&key_for_cleanup);
+                result.map_err(|e| SharedError(Arc::new(e)))
+            }
+            .boxed();
+            let shared = fut.shared();
+            map.insert(key, shared.clone());
+            shared
+        }
+    };
+
+    flight.await.map_err(|e| Box::new(e) as BoxError)
 }
 
 /// Best-effort deletion of an uploaded Telegram message. This cache server owns every
@@ -151,13 +165,53 @@ pub async fn delete_telegram_message(chat_id: i64, message_id: i64) {
     }
 }
 
+/// Removes exactly the row version that was read (same id/chat_id/message_id). Only when a
+/// row was actually deleted (and `delete_telegram` is set) is the Telegram message cleaned
+/// up, so a concurrently re-cached row (new message) is never touched.
+async fn evict_exact(db: &Database, row: &CachedFile, delete_telegram: bool, reason: &'static str) {
+    match CachedFileRepository::new(db.clone())
+        .delete_exact(row)
+        .await
+    {
+        Ok(true) => {
+            if delete_telegram {
+                delete_telegram_message(row.chat_id, row.message_id).await;
+            }
+            metrics::counter!("cache_evictions_total", "reason" => reason).increment(1);
+        }
+        Ok(false) => {
+            tracing::debug!(
+                "No cache row to evict for object_id {} (already replaced or gone)",
+                row.object_id
+            );
+        }
+        Err(err) => {
+            tracing::warn!(
+                "Failed to evict stale cache row for object_id {}: {:?}",
+                row.object_id,
+                err
+            );
+        }
+    }
+}
+
+/// Whether a failed `copy_message` means the source message is definitively gone (so the
+/// cache row is stale). Rate limits, network errors, timeouts, rights problems etc. are
+/// not: those must be surfaced without deleting anything.
+pub fn is_copy_source_gone(err: &RequestError) -> bool {
+    matches!(
+        err,
+        RequestError::Api(ApiError::MessageToCopyNotFound | ApiError::MessageIdInvalid)
+    )
+}
+
 #[tracing::instrument(skip(db), fields(object_id = object_id, object_type = %object_type, is_normalized))]
 pub async fn get_cached_file_or_cache(
     object_id: i32,
     object_type: String,
     is_normalized: bool,
     db: Database,
-) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<CachedFile>, BoxError> {
     let cached_file = CachedFileRepository::new(db.clone())
         .find_by_object_id_object_type_is_normalized(object_id, object_type.clone(), is_normalized)
         .await?;
@@ -169,49 +223,41 @@ pub async fn get_cached_file_or_cache(
         }
         None => {
             metrics::counter!("cache_misses_total").increment(1);
-
-            let key = (object_id, object_type.clone(), is_normalized);
-
-            match CACHE_FILE_INFLIGHT
-                .try_get_with(key, async move {
-                    cache_file(
-                        object_id,
-                        object_type,
-                        is_normalized,
-                        db,
-                        INTERACTIVE_MAX_RETRIES,
-                    )
-                    .await
-                    .map(Arc::new)
-                })
-                .await
-            {
-                Ok(shared) => Ok(shared.as_ref().as_ref().map(clone_cached_file)),
-                Err(err) => Err(Box::new(SharedCacheError(err))),
-            }
+            cache_file_single_flight(
+                object_id,
+                object_type,
+                is_normalized,
+                db,
+                INTERACTIVE_MAX_RETRIES,
+            )
+            .await
         }
     }
+}
+
+fn invalid_message_id(file: &CachedFile) -> BoxError {
+    tracing::error!(
+        "Invalid message_id {} for object_id {}",
+        file.message_id,
+        file.object_id
+    );
+    Box::new(std::io::Error::other(format!(
+        "invalid message_id {} for object_id {}",
+        file.message_id, file.object_id
+    )))
 }
 
 #[tracing::instrument(skip(db, original), fields(object_id = original.object_id, object_type = %original.object_type))]
 pub async fn get_cached_file_copy(
     original: CachedFile,
     db: Database,
-) -> Result<CacheData, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<CacheData, BoxError> {
     let bot = ROUND_ROBIN_BOT.get_bot();
 
-    let original_message_id: i32 = original.message_id.try_into().map_err(|err| {
-        tracing::error!(
-            "Invalid message_id {} for object_id {}: {:?}",
-            original.message_id,
-            original.object_id,
-            err
-        );
-        Box::new(std::io::Error::other(format!(
-            "invalid message_id {} for object_id {}",
-            original.message_id, original.object_id
-        ))) as Box<dyn std::error::Error + Send + Sync>
-    })?;
+    let original_message_id: i32 = original
+        .message_id
+        .try_into()
+        .map_err(|_| invalid_message_id(&original))?;
 
     let message_id = match bot
         .copy_message(
@@ -222,18 +268,13 @@ pub async fn get_cached_file_copy(
         .await
     {
         Ok(v) => v,
-        Err(_) => {
-            sqlx::query!(
-                r#"
-                DELETE FROM cached_files
-                WHERE id = $1
-                "#,
-                original.id
-            )
-            .execute(&db)
-            .await?;
-
-            delete_telegram_message(original.chat_id, original.message_id).await;
+        Err(err) if is_copy_source_gone(&err) => {
+            tracing::warn!(
+                object_id = original.object_id,
+                "cached Telegram message is gone ({:?}); evicting and re-caching",
+                err
+            );
+            evict_exact(&db, &original, true, "copy_source_gone").await;
 
             let new_original = match get_cached_file_or_cache(
                 original.object_id,
@@ -253,18 +294,10 @@ pub async fn get_cached_file_copy(
                 }
             };
 
-            let new_message_id: i32 = new_original.message_id.try_into().map_err(|err| {
-                tracing::error!(
-                    "Invalid message_id {} for object_id {}: {:?}",
-                    new_original.message_id,
-                    new_original.object_id,
-                    err
-                );
-                Box::new(std::io::Error::other(format!(
-                    "invalid message_id {} for object_id {}",
-                    new_original.message_id, new_original.object_id
-                ))) as Box<dyn std::error::Error + Send + Sync>
-            })?;
+            let new_message_id: i32 = new_original
+                .message_id
+                .try_into()
+                .map_err(|_| invalid_message_id(&new_original))?;
 
             bot.copy_message(
                 Recipient::Id(ChatId(config::CONFIG.temp_channel_id)),
@@ -273,9 +306,17 @@ pub async fn get_cached_file_copy(
             )
             .await?
         }
+        Err(err) => {
+            tracing::error!(
+                object_id = original.object_id,
+                "copy_message failed (not evicting cache): {:?}",
+                err
+            );
+            return Err(Box::new(err));
+        }
     };
 
-    TEMP_MESSAGES.insert(message_id.0, ()).await;
+    schedule_temp_message_deletion(message_id.0);
 
     Ok(CacheData {
         id: None,
@@ -293,7 +334,7 @@ pub async fn cache_file(
     is_normalized: bool,
     db: Database,
     max_retries: u32,
-) -> Result<Option<CachedFile>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<CachedFile>, BoxError> {
     let book = match get_book(object_id, max_retries).await {
         Ok(v) => v,
         Err(err) => {
@@ -353,12 +394,13 @@ pub async fn cache_file(
         message_id,
     } = upload_result;
 
-    let cached = sqlx::query_as!(
+    // DO NOTHING on conflict: if a concurrent writer already cached this key, keep its row
+    // and delete our freshly uploaded duplicate instead of orphaning/overwriting messages.
+    let inserted = sqlx::query_as!(
         CachedFile,
         r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
         VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (object_id, object_type, is_normalized)
-        DO UPDATE SET message_id = EXCLUDED.message_id, chat_id = EXCLUDED.chat_id
+        ON CONFLICT (object_id, object_type, is_normalized) DO NOTHING
         RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at"#,
         object_id,
         object_type,
@@ -366,24 +408,57 @@ pub async fn cache_file(
         message_id,
         chat_id
     )
-    .fetch_one(&db)
-    .await?;
+    .fetch_optional(&db)
+    .await;
 
-    Ok(Some(cached))
+    match inserted {
+        Ok(Some(cached)) => Ok(Some(cached)),
+        Ok(None) => {
+            delete_telegram_message(chat_id, message_id).await;
+            let existing = CachedFileRepository::new(db)
+                .find_by_object_id_object_type_is_normalized(object_id, object_type, is_normalized)
+                .await?;
+            Ok(existing)
+        }
+        Err(err) => {
+            // Row was not stored, so the uploaded message is unreferenced.
+            delete_telegram_message(chat_id, message_id).await;
+            Err(Box::new(err))
+        }
+    }
+}
+
+/// What `download_from_cache` should do with the cache row, based on the upstream status
+/// of the files server answer (C1 contract).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvictDecision {
+    /// Do not touch the row (success, 429, 5xx, timeouts, other errors).
+    Keep,
+    /// Message is definitively gone (410): delete the row only.
+    DropRow,
+    /// Message exists but has no document (204) or legacy 404: delete the stale row, and
+    /// the Telegram message too where it may still exist.
+    DropRowAndMessage,
+}
+
+/// Decides eviction from an upstream HTTP status, per contract C1: evict on 410 only
+/// (plus 404 from older files servers); 204 drops the stale row; never on 429/5xx.
+pub fn evict_decision(status: Option<StatusCode>) -> EvictDecision {
+    match status {
+        Some(StatusCode::GONE) | Some(StatusCode::NOT_FOUND) => EvictDecision::DropRow,
+        Some(StatusCode::NO_CONTENT) => EvictDecision::DropRowAndMessage,
+        _ => EvictDecision::Keep,
+    }
 }
 
 /// A definitive "the referenced Telegram message no longer exists" signal (404/410).
-/// Distinguishes cache staleness (row should be evicted and rebuilt) from transient
-/// upstream failures (5xx / timeouts / connect errors), which must not evict a valid
-/// cache entry. Shared between `download_from_cache`'s own eviction check and
-/// `views::download_cached_file`'s decision to retry-rebuild within the same request.
+/// Used by `views::download_cached_file` to decide whether to retry-rebuild within the
+/// same request.
 pub fn is_definitive_not_found_status(status: Option<StatusCode>) -> bool {
     status.is_some_and(|status| status == StatusCode::NOT_FOUND || status == StatusCode::GONE)
 }
 
-/// Extracts the upstream HTTP status from a boxed error, if it carries one (i.e. it's a
-/// `reqwest::Error` produced via `.error_for_status()`), and reports whether that status
-/// is a definitive "gone" signal per [`is_definitive_not_found_status`].
+/// Extracts the upstream HTTP status from a boxed error, if it carries one.
 pub fn is_definitive_not_found_error(
     err: &(dyn std::error::Error + Send + Sync + 'static),
 ) -> bool {
@@ -397,7 +472,7 @@ pub fn is_definitive_not_found_error(
 pub async fn download_from_cache(
     cached_data: CachedFile,
     db: Database,
-) -> Result<Option<DownloadResult>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Option<DownloadResult>, BoxError> {
     let (response_result, filename_result, book_result) = tokio::join!(
         download_from_telegram_files(
             cached_data.message_id,
@@ -417,7 +492,13 @@ pub async fn download_from_cache(
         Ok(v) => match v.status() {
             StatusCode::OK => v,
             StatusCode::NO_CONTENT => {
-                // Successful-but-empty response: not a "stale cache" signal, don't evict.
+                // Message exists but carries no document: the row is useless. Drop it so
+                // the next request re-caches, but do not loop within this request.
+                tracing::warn!(
+                    object_id = cached_data.object_id,
+                    "cached message has no document; dropping stale row"
+                );
+                evict_exact(&db, &cached_data, true, "no_document").await;
                 return Ok(None);
             }
             other => {
@@ -430,54 +511,26 @@ pub async fn download_from_cache(
             }
         },
         Err(err) => {
-            // download_from_telegram_files already applies error_for_status(), so any
-            // status-based error here carries the real upstream status code. Only evict
-            // the cache row on a definitive "message no longer exists" answer (404/410).
-            // 5xx / timeouts / connect errors are transient and must not evict a valid cache entry.
             let status = err
                 .downcast_ref::<reqwest::Error>()
                 .and_then(|e| e.status());
-            let should_evict = is_definitive_not_found_status(status);
-
-            if should_evict {
-                let cached_file_repo = CachedFileRepository::new(db.clone());
-
-                match cached_file_repo
-                    .delete_by_object_id_object_type_is_normalized(
-                        cached_data.object_id,
-                        cached_data.object_type.clone(),
-                        cached_data.is_normalized,
-                    )
-                    .await
-                {
-                    Ok(Some(deleted)) => {
-                        delete_telegram_message(deleted.chat_id, deleted.message_id).await;
-                        metrics::counter!(
-                            "cache_evictions_total",
-                            "reason" => if status == Some(StatusCode::NOT_FOUND) { "not_found" } else { "gone" }
-                        )
-                        .increment(1);
-                    }
-                    Ok(None) => {
-                        tracing::debug!(
-                            "No cache row to evict for object_id {} (already gone)",
-                            cached_data.object_id
-                        );
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            "Failed to evict stale cache row for object_id {}: {:?}",
-                            cached_data.object_id,
-                            err
-                        );
-                    }
+            match evict_decision(status) {
+                EvictDecision::DropRow | EvictDecision::DropRowAndMessage => {
+                    // The message is already gone upstream: only the row is deleted.
+                    let reason = if status == Some(StatusCode::NOT_FOUND) {
+                        "not_found"
+                    } else {
+                        "gone"
+                    };
+                    evict_exact(&db, &cached_data, false, reason).await;
                 }
-            } else {
-                tracing::warn!(
-                    "Non-definitive error fetching cached file for object_id {} (not evicting cache): {:?}",
-                    cached_data.object_id,
-                    err
-                );
+                EvictDecision::Keep => {
+                    tracing::warn!(
+                        "Non-definitive error fetching cached file for object_id {} (not evicting cache): {:?}",
+                        cached_data.object_id,
+                        err
+                    );
+                }
             }
 
             tracing::error!("{:?}", err);
@@ -554,20 +607,16 @@ async fn warm_up_pair(
         return true;
     }
 
-    match cache_file(book_id, object_type, true, db, BACKGROUND_MAX_RETRIES).await {
+    match cache_file_single_flight(book_id, object_type, true, db, BACKGROUND_MAX_RETRIES).await {
         Ok(Some(_)) => {
             files_cached.fetch_add(1, Ordering::Relaxed);
             true
         }
         Ok(None) => true,
         Err(err) => {
-            let is_rate_limited = err
-                .downcast_ref::<reqwest::Error>()
-                .and_then(|e| e.status())
-                == Some(StatusCode::TOO_MANY_REQUESTS);
-
-            if is_rate_limited {
-                throttle.trigger_backoff(warmup::WARMUP_429_BACKOFF).await;
+            if let Some(secs) = rate_limit_secs(&*err) {
+                let backoff = warmup::WARMUP_429_BACKOFF.max(std::time::Duration::from_secs(secs));
+                throttle.trigger_backoff(backoff).await;
             }
 
             tracing::error!("{:?}", err);
@@ -576,9 +625,7 @@ async fn warm_up_pair(
     }
 }
 
-async fn start_update_cache(
-    db: Database,
-) -> Result<UpdateCacheSummary, Box<dyn std::error::Error + Send + Sync>> {
+async fn start_update_cache(db: Database) -> Result<UpdateCacheSummary, BoxError> {
     let page_size = 50;
 
     let now = chrono::offset::Utc::now();
@@ -685,8 +732,28 @@ static UPDATE_CACHE_STATUS: Lazy<Mutex<UpdateCacheStatus>> = Lazy::new(|| {
     })
 });
 
+fn lock_status() -> std::sync::MutexGuard<'static, UpdateCacheStatus> {
+    UPDATE_CACHE_STATUS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Resets `UPDATE_CACHE_RUNNING` (and the status `running` flag) on drop, including when
+/// the scan task panics.
+struct UpdateCacheGuard;
+
+impl Drop for UpdateCacheGuard {
+    fn drop(&mut self) {
+        let mut status = lock_status();
+        status.running = false;
+        status.last_finished_at = Some(chrono::Utc::now());
+        drop(status);
+        UPDATE_CACHE_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
 pub fn current_update_cache_status() -> UpdateCacheStatus {
-    UPDATE_CACHE_STATUS.lock().unwrap().clone()
+    lock_status().clone()
 }
 
 /// Starts a cache-warmup scan unless one is already running. Returns `None` (and starts
@@ -702,7 +769,7 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
     }
 
     {
-        let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
+        let mut status = lock_status();
         status.running = true;
         status.last_started_at = Some(chrono::Utc::now());
         status.last_error = None;
@@ -712,6 +779,7 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
 
     tokio::spawn(
         async move {
+            let _guard = UpdateCacheGuard;
             let started_at = std::time::Instant::now();
             let result = start_update_cache(db).await;
             let duration = started_at.elapsed();
@@ -741,16 +809,58 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
                 }
             }
 
-            let mut status = UPDATE_CACHE_STATUS.lock().unwrap();
-            status.running = false;
-            status.last_finished_at = Some(chrono::Utc::now());
-            status.last_error = result.err().map(|e| e.to_string());
-            drop(status);
-
-            UPDATE_CACHE_RUNNING.store(false, Ordering::SeqCst);
+            lock_status().last_error = result.err().map(|e| e.to_string());
         }
         .instrument(run_span),
     );
 
     Some(current_update_cache_status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evict_decision_by_status() {
+        assert_eq!(
+            evict_decision(Some(StatusCode::GONE)),
+            EvictDecision::DropRow
+        );
+        assert_eq!(
+            evict_decision(Some(StatusCode::NOT_FOUND)),
+            EvictDecision::DropRow
+        );
+        assert_eq!(
+            evict_decision(Some(StatusCode::NO_CONTENT)),
+            EvictDecision::DropRowAndMessage
+        );
+        for s in [
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::GATEWAY_TIMEOUT,
+            StatusCode::OK,
+        ] {
+            assert_eq!(evict_decision(Some(s)), EvictDecision::Keep, "{s}");
+        }
+        assert_eq!(evict_decision(None), EvictDecision::Keep);
+    }
+
+    #[test]
+    fn copy_source_gone_only_for_definitive_api_errors() {
+        assert!(is_copy_source_gone(&RequestError::Api(
+            ApiError::MessageToCopyNotFound
+        )));
+        assert!(is_copy_source_gone(&RequestError::Api(
+            ApiError::MessageIdInvalid
+        )));
+        assert!(!is_copy_source_gone(&RequestError::Api(
+            ApiError::BotBlocked
+        )));
+        assert!(!is_copy_source_gone(&RequestError::Io(
+            std::io::Error::other("net").into()
+        )));
+    }
 }
