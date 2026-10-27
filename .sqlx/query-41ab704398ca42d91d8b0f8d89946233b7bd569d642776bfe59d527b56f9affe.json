@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (object_id, object_type, is_normalized)\n        DO UPDATE SET message_id = EXCLUDED.message_id, chat_id = EXCLUDED.chat_id\n        RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at",
+  "query": "INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)\n        VALUES ($1, $2, $3, $4, $5)\n        ON CONFLICT (object_id, object_type, is_normalized) DO NOTHING\n        RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "c206d1ac8463f59a8b70dff449c05805be57edd372b3f4e7146cd935c705a6cc"
+  "hash": "41ab704398ca42d91d8b0f8d89946233b7bd569d642776bfe59d527b56f9affe"
 }

@@ -396,17 +396,18 @@ pub async fn cache_file(
 
     // DO NOTHING on conflict: if a concurrent writer already cached this key, keep its row
     // and delete our freshly uploaded duplicate instead of orphaning/overwriting messages.
-    let inserted = sqlx::query_as::<_, CachedFile>(
+    let inserted = sqlx::query_as!(
+        CachedFile,
         r#"INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (object_id, object_type, is_normalized) DO NOTHING
         RETURNING id, object_id, object_type, is_normalized, message_id, chat_id, created_at"#,
+        object_id,
+        object_type,
+        is_normalized,
+        message_id,
+        chat_id
     )
-    .bind(object_id)
-    .bind(&object_type)
-    .bind(is_normalized)
-    .bind(message_id)
-    .bind(chat_id)
     .fetch_optional(&db)
     .await;
 
