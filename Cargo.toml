@@ -37,7 +37,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"]}
 sentry-tracing = "0.42.0"
 tower-http = { version = "0.6.2", features = ["trace"] }
 
-reqwest = { version = "0.12.15", features = ["json", "stream", "multipart"] }
+reqwest = { version = "0.13.5", features = ["json", "stream", "multipart"] }
 
 chrono = { version = "0.4.40", features = ["serde"] }
 sentry = { version = "0.42.0", features = ["debug-images"] }
