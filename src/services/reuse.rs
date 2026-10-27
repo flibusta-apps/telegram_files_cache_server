@@ -527,7 +527,7 @@ mod tests {
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zipped)).unwrap();
         assert_eq!(archive.len(), 1);
         let mut entry = archive.by_index(0).unwrap();
-        assert_eq!(entry.name(), "book.fb2");
+        assert_eq!(entry.name().unwrap(), "book.fb2");
         let mut out = Vec::new();
         entry.read_to_end(&mut out).unwrap();
         assert_eq!(out, content);

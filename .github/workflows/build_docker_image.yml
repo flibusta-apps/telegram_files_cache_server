@@ -39,7 +39,7 @@ jobs:
       - name: Audit dependencies
         # zip 4.x advisories concern extract()/streaming APIs we don't use (fix needs zip>=9, API
         # migration pending); rsa comes from sqlx-mysql which is not compiled in.
-        run: cargo audit --ignore RUSTSEC-2026-0367 --ignore RUSTSEC-2026-0368 --ignore RUSTSEC-2026-0369 --ignore RUSTSEC-2023-0071
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
       - name: Run tests
         run: cargo test
