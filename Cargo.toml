@@ -49,7 +49,7 @@ futures = "0.3.31"
 teloxide = { version = "0.17.0", features = ["macros", "webhooks-axum", "cache-me", "throttle"] }
 
 
-sqlx = { version = "0.8.3", features = ["runtime-tokio", "postgres", "macros", "migrate", "chrono"] }
+sqlx = { version = "0.9.0", features = ["runtime-tokio", "postgres", "macros", "migrate", "chrono"] }
 subtle = "2.6.1"
 
 zip = { version = "9", default-features = false, features = ["deflate"] }
