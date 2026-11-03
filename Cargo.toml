@@ -42,7 +42,7 @@ reqwest = { version = "0.12.15", features = ["json", "stream", "multipart"] }
 chrono = { version = "0.4.40", features = ["serde"] }
 sentry = { version = "0.42.0", features = ["debug-images"] }
 
-base64 = "0.22.1"
+base64 = "0.23.1"
 
 futures = "0.3.31"
 
