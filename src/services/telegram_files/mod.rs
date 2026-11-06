@@ -11,10 +11,11 @@ use serde::Deserialize;
 use crate::config::CONFIG;
 use crate::error::check_status;
 use crate::http_client::CLIENT;
-use crate::services::download_utils::read_body_capped;
+use crate::services::download_utils::spool_body_capped;
 use crate::services::retry::{is_transient_error, retry_connect_only, retry_transient};
+use crate::services::temp_file::TempFile;
 
-/// Upper bound for a buffered downloader response before it is uploaded.
+/// Upper bound for a spooled downloader response before it is uploaded.
 const MAX_UPLOAD_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -53,34 +54,34 @@ pub async fn download_from_telegram_files(
     .await
 }
 
-/// Payload for `upload_bytes_to_telegram_files`: fully-buffered file bytes plus the
+/// Payload for `upload_bytes_to_telegram_files`: disk-backed file plus the
 /// metadata needed for the multipart upload to the internal `files_server`.
 pub struct UploadPayload {
-    pub bytes: bytes::Bytes,
+    pub file: TempFile,
     pub filename: String,
     pub caption: String,
 }
 
-/// Uploads already-buffered bytes to the internal `files_server`. Used both by the cold
-/// path (`upload_to_telegram_files`, after buffering a downloader `Response`) and by the
+/// Streams a disk-backed payload to the internal `files_server`. Used both by the cold
+/// path (`upload_to_telegram_files`, after spooling a downloader `Response`) and by the
 /// cross-normalized reuse path (`services::reuse`), which never has a downloader
 /// `Response` to begin with.
 pub async fn upload_bytes_to_telegram_files(
     payload: UploadPayload,
     max_retries: u32,
 ) -> Result<UploadData, Box<dyn std::error::Error + Send + Sync>> {
-    let file_size = payload.bytes.len().to_string();
+    let size = payload.file.size()?;
+    let file_size = size.to_string();
     let filename = payload.filename;
     let caption = payload.caption;
-    let body_bytes = payload.bytes;
+    let file = std::sync::Arc::new(payload.file);
 
     let file_size_clone = file_size.clone();
     let filename_clone = filename.clone();
     let caption_clone = caption.clone();
-    let body_bytes_clone = body_bytes.clone();
 
     let result = retry_connect_only(max_retries, move || {
-        let body_bytes = body_bytes_clone.clone();
+        let file = file.clone();
         let filename = filename_clone.clone();
         let file_size = file_size_clone.clone();
         let caption = caption_clone.clone();
@@ -88,7 +89,8 @@ pub async fn upload_bytes_to_telegram_files(
         async move {
             let url = format!("{}/api/v1/files/upload/", CONFIG.files_url);
 
-            let part = Part::stream(body_bytes.clone()).file_name(filename.clone());
+            let part =
+                Part::stream_with_length(file.body().await?, size).file_name(filename.clone());
 
             let form = Form::new()
                 .text("caption", caption)
@@ -151,7 +153,7 @@ pub async fn upload_to_telegram_files(
     let headers = data_response.headers().clone();
 
     // Validated for parity with prior behavior even though the byte count used for the
-    // upload is now derived from the buffered body itself (`payload.bytes.len()` in
+    // upload is now derived from the spooled body itself (`payload.file.size()` in
     // `upload_bytes_to_telegram_files`), not this header value.
     headers.get(header::CONTENT_LENGTH).ok_or_else(|| {
         Box::new(std::io::Error::new(
@@ -175,11 +177,11 @@ pub async fn upload_to_telegram_files(
     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
     .to_string();
 
-    let bytes = read_body_capped(data_response, MAX_UPLOAD_BYTES).await?;
+    let file = spool_body_capped(data_response, MAX_UPLOAD_BYTES).await?;
 
     upload_bytes_to_telegram_files(
         UploadPayload {
-            bytes,
+            file,
             filename,
             caption,
         },

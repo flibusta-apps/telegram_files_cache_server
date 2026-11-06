@@ -1,4 +1,6 @@
-use std::io::{Cursor, Read};
+#[cfg(test)]
+use std::io::Cursor;
+use std::io::Read;
 
 use zip::write::FileOptions;
 
@@ -28,6 +30,7 @@ impl std::error::Error for ZipError {}
 /// substring) from an in-memory zip archive. Ported from
 /// `books_downloader/src/services/downloader/zip.rs::unzip`, adapted to operate purely
 /// in memory via `Cursor` instead of `SpooledTempFile`.
+#[cfg(test)]
 pub fn extract_single_entry(
     archive: &[u8],
     ext: &str,
@@ -90,6 +93,7 @@ pub fn is_precompressed_file_type(file_type: &str) -> bool {
 /// `content` as its bytes. Ported from
 /// `books_downloader/src/services/downloader/zip.rs::zip`, adapted to operate purely in
 /// memory via `Cursor` instead of `SpooledTempFile`.
+#[cfg(test)]
 pub fn build_single_entry_zip(
     content: &[u8],
     entry_name: &str,
@@ -124,9 +128,97 @@ pub fn build_single_entry_zip(
     Ok(cursor.into_inner())
 }
 
+/// Copies the source directly into a disk-backed ZIP. When repacking, the selected
+/// entry is inflated into the ZIP writer, never into a second large allocation.
+pub fn transform_zip_file(
+    source: super::temp_file::TempFile,
+    entry_name: &str,
+    inner_type: &str,
+    repack: bool,
+) -> Result<super::temp_file::TempFile, Box<dyn std::error::Error + Send + Sync>> {
+    let (output, file) = super::temp_file::TempFile::create()?;
+    let mut writer = zip::ZipWriter::new(file);
+    let options: FileOptions<()> = FileOptions::default()
+        .compression_method(if is_precompressed_file_type(inner_type) {
+            zip::CompressionMethod::Stored
+        } else {
+            zip::CompressionMethod::Deflated
+        })
+        .compression_level(Some(ZIP_COMPRESSION_LEVEL))
+        .unix_permissions(0o755);
+    writer.start_file(entry_name, options)?;
+    if repack {
+        let mut archive = zip::ZipArchive::new(source.open()?)?;
+        let mut found = false;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            if entry.is_dir()
+                || !entry
+                    .name()?
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case(inner_type))
+            {
+                continue;
+            }
+            if entry.size() > MAX_DECOMPRESSED_BYTES
+                || entry.size() / entry.compressed_size().max(1) > MAX_COMPRESSION_RATIO
+            {
+                return Err(Box::new(ZipError::BadArchive));
+            }
+            let size = std::io::copy(
+                &mut (&mut entry).take(MAX_DECOMPRESSED_BYTES + 1),
+                &mut writer,
+            )?;
+            if size > MAX_DECOMPRESSED_BYTES {
+                return Err(Box::new(ZipError::BadArchive));
+            }
+            found = true;
+            break;
+        }
+        if !found {
+            return Err(Box::new(ZipError::BadArchive));
+        }
+    } else {
+        std::io::copy(&mut source.open()?, &mut writer)?;
+    }
+    writer.finish()?;
+    if output.size()? > MAX_REUSE_BYTES as u64 {
+        return Err(Box::new(ZipError::BadArchive));
+    }
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_wrap_and_repack_preserve_content_and_rename_entry() {
+        use std::io::Write;
+        let (source, mut file) = super::super::temp_file::TempFile::create().unwrap();
+        file.write_all(b"book contents").unwrap();
+        drop(file);
+        let wrapped = transform_zip_file(source, "old.fb2", "fb2", false).unwrap();
+        let repacked = transform_zip_file(wrapped, "new.fb2", "fb2", true).unwrap();
+        let mut archive = zip::ZipArchive::new(repacked.open().unwrap()).unwrap();
+        assert_eq!(archive.len(), 1);
+        let mut entry = archive.by_index(0).unwrap();
+        assert_eq!(entry.name().unwrap(), "new.fb2");
+        let mut content = Vec::new();
+        entry.read_to_end(&mut content).unwrap();
+        assert_eq!(content, b"book contents");
+    }
+
+    #[test]
+    fn disk_repack_rejects_excessive_expansion() {
+        use std::io::Write;
+        let zipped = build_single_entry_zip(&vec![0; 1024 * 1024], "book.fb2", 6, false).unwrap();
+        let (source, mut file) = super::super::temp_file::TempFile::create().unwrap();
+        file.write_all(&zipped).unwrap();
+        drop(file);
+        assert!(transform_zip_file(source, "new.fb2", "fb2", true).is_err());
+    }
 
     const GENEROUS_MAX_DECOMPRESSED: u64 = 5 * 1024 * 1024;
     const GENEROUS_MAX_RATIO: u64 = 1000;

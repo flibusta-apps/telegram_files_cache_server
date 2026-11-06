@@ -2,9 +2,11 @@ pub mod book_library;
 pub mod bots;
 pub mod download_utils;
 pub mod downloader;
+pub mod fill_limits;
 pub mod retry;
 pub mod reuse;
 pub mod telegram_files;
+pub mod temp_file;
 pub mod warmup;
 pub mod zip_utils;
 
@@ -99,6 +101,14 @@ fn lock_inflight() -> std::sync::MutexGuard<'static, HashMap<CacheFileKey, Fligh
         .unwrap_or_else(|e| e.into_inner())
 }
 
+struct FlightGuard(CacheFileKey);
+
+impl Drop for FlightGuard {
+    fn drop(&mut self) {
+        lock_inflight().remove(&self.0);
+    }
+}
+
 /// Runs `cache_file` through the single-flight registry. Used both by request handlers
 /// and by the warmup job so they never upload the same file concurrently.
 pub async fn cache_file_single_flight(
@@ -116,11 +126,27 @@ pub async fn cache_file_single_flight(
             existing.clone()
         } else {
             let key_for_cleanup = key.clone();
+            let task = tokio::spawn(async move {
+                let _guard = FlightGuard(key_for_cleanup);
+                // Includes metadata, download, upload and retry backoff. Independent
+                // of request cancellation so dropped waiters cannot strand the key.
+                let deadline = std::time::Duration::from_secs(
+                    config::CONFIG.upload_timeout_secs.saturating_add(600),
+                );
+                match tokio::time::timeout(
+                    deadline,
+                    cache_file(object_id, object_type, is_normalized, db, max_retries),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(err) => Err(Box::new(err) as BoxError),
+                }
+            });
             let fut: BoxFuture<'static, FlightResult> = async move {
-                let result =
-                    cache_file(object_id, object_type, is_normalized, db, max_retries).await;
-                lock_inflight().remove(&key_for_cleanup);
-                result.map_err(|e| SharedError(Arc::new(e)))
+                task.await
+                    .unwrap_or_else(|err| Err(Box::new(err) as BoxError))
+                    .map_err(|e| SharedError(Arc::new(e)))
             }
             .boxed();
             let shared = fut.shared();
@@ -335,6 +361,17 @@ pub async fn cache_file(
     db: Database,
     max_retries: u32,
 ) -> Result<Option<CachedFile>, BoxError> {
+    // Recheck inside the flight: another fill may have finished after the
+    // caller's initial SELECT but before it acquired its registry entry.
+    if let Some(cached) = CachedFileRepository::new(db.clone())
+        .find_by_object_id_object_type_is_normalized(object_id, object_type.clone(), is_normalized)
+        .await?
+    {
+        return Ok(Some(cached));
+    }
+    // Both HTTP-triggered misses and warmup enter here. Hold through upload and
+    // persistence; never acquire again in reuse/cold fallback (would deadlock).
+    let _fill_permit = fill_limits::FILLS.acquire().await?;
     let book = match get_book(object_id, max_retries).await {
         Ok(v) => v,
         Err(err) => {
@@ -421,8 +458,29 @@ pub async fn cache_file(
             Ok(existing)
         }
         Err(err) => {
-            // Row was not stored, so the uploaded message is unreferenced.
-            delete_telegram_message(chat_id, message_id).await;
+            // A transport error can follow a successful COMMIT. A fresh query
+            // must establish that no row references our message before deletion.
+            match sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM cached_files WHERE chat_id = $1 AND message_id = $2)",
+            )
+            .bind(chat_id)
+            .bind(message_id)
+            .fetch_one(&db)
+            .await
+            {
+                Ok(false) => delete_telegram_message(chat_id, message_id).await,
+                Ok(true) => tracing::warn!(
+                    chat_id,
+                    message_id,
+                    "INSERT failed but message is referenced; preserving"
+                ),
+                Err(check_err) => tracing::error!(
+                    chat_id,
+                    message_id,
+                    ?check_err,
+                    "Cannot reconcile uncertain INSERT; preserving message for reconciliation"
+                ),
+            }
             Err(Box::new(err))
         }
     }
@@ -573,6 +631,17 @@ struct UpdateCacheSummary {
     books_scanned: usize,
     files_cached: usize,
     failures: usize,
+    successes: usize,
+}
+
+impl UpdateCacheSummary {
+    fn outcome(&self) -> &'static str {
+        match (self.failures, self.successes) {
+            (0, _) => "success",
+            (_, 0) => "failed",
+            _ => "partial",
+        }
+    }
 }
 
 /// One `(book_id, object_type)` pair to be cache-warmed. `is_normalized` is always
@@ -612,7 +681,7 @@ async fn warm_up_pair(
             files_cached.fetch_add(1, Ordering::Relaxed);
             true
         }
-        Ok(None) => true,
+        Ok(None) => false,
         Err(err) => {
             if let Some(secs) = rate_limit_secs(&*err) {
                 let backoff = warmup::WARMUP_429_BACKOFF.max(std::time::Duration::from_secs(secs));
@@ -686,7 +755,7 @@ async fn start_update_cache(db: Database) -> Result<UpdateCacheSummary, BoxError
         let db_for_workers = db.clone();
         let files_cached = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let files_cached_for_workers = files_cached.clone();
-        let (_successes, failures) = warmup::run_with_concurrency(
+        let (successes, failures) = warmup::run_with_concurrency(
             pairs,
             concurrency,
             throttle.clone(),
@@ -700,6 +769,7 @@ async fn start_update_cache(db: Database) -> Result<UpdateCacheSummary, BoxError
 
         summary.files_cached += files_cached.load(Ordering::Relaxed);
         summary.failures += failures;
+        summary.successes += successes;
 
         let Some(next_page_fetch) = next_page_fetch else {
             break;
@@ -721,6 +791,9 @@ pub struct UpdateCacheStatus {
     pub last_started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_finished_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_error: Option<String>,
+    pub last_outcome: Option<String>,
+    pub files_succeeded: usize,
+    pub files_failed: usize,
 }
 
 static UPDATE_CACHE_STATUS: Lazy<Mutex<UpdateCacheStatus>> = Lazy::new(|| {
@@ -729,6 +802,9 @@ static UPDATE_CACHE_STATUS: Lazy<Mutex<UpdateCacheStatus>> = Lazy::new(|| {
         last_started_at: None,
         last_finished_at: None,
         last_error: None,
+        last_outcome: None,
+        files_succeeded: 0,
+        files_failed: 0,
     })
 });
 
@@ -784,7 +860,9 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
             let result = start_update_cache(db).await;
             let duration = started_at.elapsed();
 
-            let outcome = if result.is_ok() { "success" } else { "failure" };
+            let outcome = result
+                .as_ref()
+                .map_or("failed", |summary| summary.outcome());
             metrics::counter!("update_cache_runs_total", "outcome" => outcome).increment(1);
             metrics::histogram!("update_cache_duration_seconds").record(duration.as_secs_f64());
 
@@ -796,6 +874,8 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
                         books_scanned = summary.books_scanned,
                         files_cached = summary.files_cached,
                         failures = summary.failures,
+                        successes = summary.successes,
+                        outcome,
                         duration_ms = duration.as_millis() as u64,
                         "update_cache run completed"
                     );
@@ -809,7 +889,21 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
                 }
             }
 
-            lock_status().last_error = result.err().map(|e| e.to_string());
+            let mut status = lock_status();
+            status.last_outcome = Some(outcome.to_owned());
+            match result {
+                Ok(summary) => {
+                    status.files_succeeded = summary.successes;
+                    status.files_failed = summary.failures;
+                    status.last_error = (summary.failures > 0).then(|| {
+                        format!(
+                            "{} files failed; {} succeeded",
+                            summary.failures, summary.successes
+                        )
+                    });
+                }
+                Err(err) => status.last_error = Some(err.to_string()),
+            }
         }
         .instrument(run_span),
     );
@@ -820,6 +914,29 @@ pub fn try_start_update_cache(db: Database) -> Option<UpdateCacheStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[ignore = "requires disposable Postgres with CREATE DATABASE permission"]
+    async fn fill_rechecks_existing_row_before_any_upstream_call(db: Database) {
+        sqlx::query("INSERT INTO cached_files (object_id, object_type, is_normalized, message_id, chat_id) VALUES (9876, 'djv', true, 123, 456)")
+            .execute(&db).await.unwrap();
+        let cached = cache_file(9876, "djv".into(), true, db, 0)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cached.message_id, 123);
+        assert_eq!(cached.chat_id, 456);
+    }
+
+    #[test]
+    fn warmup_outcomes_include_failures() {
+        let mut summary = UpdateCacheSummary::default();
+        assert_eq!(summary.outcome(), "success");
+        summary.failures = 2;
+        assert_eq!(summary.outcome(), "failed");
+        summary.successes = 1;
+        assert_eq!(summary.outcome(), "partial");
+    }
 
     #[test]
     fn evict_decision_by_status() {

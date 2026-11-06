@@ -46,7 +46,8 @@ Lefthook runs: `fmt` → `cargo-check` → `clippy`.
 - `DB_ACQUIRE_TIMEOUT_SECS` — pool connection acquire timeout in seconds (default: `5`).
 - `CACHE_WARMUP_CONCURRENCY` — max concurrent `(book, type)` pairs processed per page during `POST /update_cache` warmup (default: `4`). Should stay below the number of `BOT_TOKENS` (round-robin bot pool size) to avoid saturating any single bot.
 - `CROSS_NORMALIZED_REUSE` — bool, default `true`. Kill switch for the cross-normalized reuse optimization: on a cache miss for `fb2`/`epub`/`mobi`/`fb2zip`, reuse the already-cached Telegram bytes of the *opposite* `is_normalized` variant (re-fetched fast from the internal `files_server`, and for `fb2zip` unzipped/re-zipped under the target filename) instead of re-fetching from the slower external source mirror; additionally, a `fb2zip` miss with no cached `fb2zip` variant is satisfied by wrapping an already-cached `fb2` row (same `is_normalized` preferred) into a single-entry zip. Set to `false` to always cold-rebuild.
-- `UPLOAD_TIMEOUT_SECS` — total timeout for the upload POST to the files server (default: `600`).
+- `UPLOAD_TIMEOUT_SECS` — total timeout for the upload POST to the files server (default: `720`), allowing queue/multipart overhead beyond the server's internal 600-second upload deadline.
+- `TELEGRAM_API_URL` — optional Bot API base URL (for example `http://telegram-bot-api:8081`); used for copy/delete operations. Unset uses Telegram's cloud endpoint. Configure the same endpoint as the files server.
 - `SENTRY_DSN` — Sentry error reporting DSN; Sentry is disabled (no-op) when unset.
 
 ## SQLx

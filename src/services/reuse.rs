@@ -3,15 +3,12 @@ use reqwest::StatusCode;
 use crate::{config, repository::CachedFileRepository, serializers::CachedFile, views::Database};
 
 use super::{
-    download_utils::read_body_capped,
+    download_utils::spool_body_capped,
     downloader::get_filename,
     telegram_files::{
         download_from_telegram_files, upload_bytes_to_telegram_files, UploadData, UploadPayload,
     },
-    zip_utils::{
-        build_single_entry_zip, extract_single_entry, is_precompressed_file_type,
-        MAX_COMPRESSION_RATIO, MAX_DECOMPRESSED_BYTES, MAX_REUSE_BYTES, ZIP_COMPRESSION_LEVEL,
-    },
+    zip_utils::{transform_zip_file, MAX_REUSE_BYTES},
 };
 
 /// Describes how the opposite `is_normalized` variant's already-cached Telegram bytes
@@ -273,6 +270,30 @@ pub(crate) async fn reuse_from_source(
         inner_filename_fut,
     );
 
+    // All joined requests must preserve backpressure, even if another branch
+    // would otherwise make this source ineligible and trigger a cold upload.
+    let retry_after = download_result
+        .as_ref()
+        .err()
+        .and_then(|e| crate::error::rate_limit_secs(&**e))
+        .or_else(|| {
+            target_filename_result
+                .as_ref()
+                .err()
+                .and_then(|e| crate::error::rate_limit_secs(&**e))
+        })
+        .or_else(|| {
+            inner_filename_result
+                .as_ref()
+                .and_then(|r| r.as_ref().err())
+                .and_then(|e| crate::error::rate_limit_secs(&**e))
+        });
+    if let Some(retry_after_secs) = retry_after {
+        return Err(Box::new(crate::error::RateLimitedError {
+            retry_after_secs,
+        }));
+    }
+
     let response = match download_result {
         Ok(resp) if resp.status() == StatusCode::NO_CONTENT => {
             tracing::warn!(
@@ -286,6 +307,9 @@ pub(crate) async fn reuse_from_source(
         }
         Ok(resp) => resp,
         Err(err) => {
+            if crate::error::rate_limit_secs(&*err).is_some() {
+                return Err(err);
+            }
             tracing::warn!(
                 object_id,
                 object_type,
@@ -298,7 +322,7 @@ pub(crate) async fn reuse_from_source(
         }
     };
 
-    let source_bytes = match read_body_capped(response, MAX_REUSE_BYTES).await {
+    let source_file = match spool_body_capped(response, MAX_REUSE_BYTES).await {
         Ok(v) => v,
         Err(err) => {
             tracing::warn!(
@@ -313,11 +337,12 @@ pub(crate) async fn reuse_from_source(
         }
     };
 
-    if source_bytes.is_empty() || source_bytes.len() > MAX_REUSE_BYTES {
+    let source_size = source_file.size()?;
+    if source_size == 0 || source_size > MAX_REUSE_BYTES as u64 {
         tracing::warn!(
             object_id,
             object_type,
-            size = source_bytes.len(),
+            size = source_size,
             "cross_normalized_reuse: opposite-normalized source bytes empty or too large"
         );
         metrics::counter!("cross_normalized_reuse_total", "outcome" => "fetch_failed").increment(1);
@@ -357,26 +382,23 @@ pub(crate) async fn reuse_from_source(
 
     let document_filename = target_filename.filename_ascii;
 
-    let final_bytes = match kind {
-        ReuseKind::IdenticalBytes => source_bytes,
-        ReuseKind::WrapZip { inner_type } => {
+    let final_file = match kind {
+        ReuseKind::IdenticalBytes => source_file,
+        ReuseKind::WrapZip { inner_type } | ReuseKind::RepackZip { inner_type } => {
             let inner_filename = inner_filename
-                .expect("inner_filename must be resolved for WrapZip reuse kind")
+                .expect("inner_filename must be resolved for ZIP reuse")
                 .filename;
 
-            let stored = is_precompressed_file_type(inner_type);
+            // The blocking task owns both files, so cancellation cannot delete its
+            // input mid-transform. Global fill capacity bounds active transforms.
+            let repack = matches!(kind, ReuseKind::RepackZip { .. });
             let wrap_result = tokio::task::spawn_blocking(move || {
-                build_single_entry_zip(
-                    &source_bytes,
-                    &inner_filename,
-                    ZIP_COMPRESSION_LEVEL,
-                    stored,
-                )
+                transform_zip_file(source_file, &inner_filename, inner_type, repack)
             })
             .await;
 
             match wrap_result {
-                Ok(Ok(bytes)) => bytes::Bytes::from(bytes),
+                Ok(Ok(file)) => file,
                 Ok(Err(err)) => {
                     tracing::warn!(
                         object_id,
@@ -401,54 +423,11 @@ pub(crate) async fn reuse_from_source(
                 }
             }
         }
-        ReuseKind::RepackZip { inner_type } => {
-            let inner_filename = inner_filename
-                .expect("inner_filename must be resolved for RepackZip reuse kind")
-                .filename;
-
-            let stored = is_precompressed_file_type(inner_type);
-            let repack_result = tokio::task::spawn_blocking(move || {
-                let extracted = extract_single_entry(
-                    &source_bytes,
-                    inner_type,
-                    MAX_DECOMPRESSED_BYTES,
-                    MAX_COMPRESSION_RATIO,
-                )?;
-                build_single_entry_zip(&extracted, &inner_filename, ZIP_COMPRESSION_LEVEL, stored)
-            })
-            .await;
-
-            match repack_result {
-                Ok(Ok(bytes)) => bytes::Bytes::from(bytes),
-                Ok(Err(err)) => {
-                    tracing::warn!(
-                        object_id,
-                        object_type,
-                        error = ?err,
-                        "cross_normalized_reuse: failed to repack zip entry"
-                    );
-                    metrics::counter!("cross_normalized_reuse_total", "outcome" => "repack_failed")
-                        .increment(1);
-                    return Ok(ReuseOutcome::NotEligible);
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        object_id,
-                        object_type,
-                        error = ?err,
-                        "cross_normalized_reuse: repack task panicked/was cancelled"
-                    );
-                    metrics::counter!("cross_normalized_reuse_total", "outcome" => "repack_failed")
-                        .increment(1);
-                    return Ok(ReuseOutcome::NotEligible);
-                }
-            }
-        }
     };
 
     let upload_result = upload_bytes_to_telegram_files(
         UploadPayload {
-            bytes: final_bytes,
+            file: final_file,
             filename: document_filename,
             caption: caption.to_string(),
         },
@@ -479,6 +458,9 @@ pub(crate) async fn reuse_from_source(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::zip_utils::{
+        build_single_entry_zip, is_precompressed_file_type, ZIP_COMPRESSION_LEVEL,
+    };
 
     #[test]
     fn reuse_kind_is_default_deny() {

@@ -15,7 +15,16 @@ impl RoundRobinBot {
     pub fn new(bot_tokens: Vec<String>) -> Self {
         assert!(!bot_tokens.is_empty(), "BOT_TOKENS must not be empty");
         RoundRobinBot {
-            bots: bot_tokens.into_iter().map(Bot::new).collect(),
+            bots: bot_tokens
+                .into_iter()
+                .map(|token| {
+                    let bot = Bot::new(token);
+                    match &config::CONFIG.telegram_api_url {
+                        Some(url) => bot.set_api_url(url.clone()),
+                        None => bot,
+                    }
+                })
+                .collect(),
             current_index: AtomicUsize::new(0),
         }
     }

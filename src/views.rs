@@ -63,7 +63,7 @@ async fn get_cached_file(
     let cached_file =
         match get_cached_file_or_cache(object_id, object_type, is_normalized, db.clone()).await {
             Ok(Some(cached_file)) => cached_file,
-            Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
             Err(err) => {
                 tracing::error!(
                     object_id,
@@ -115,7 +115,7 @@ async fn download_cached_file(
             .await
         {
             Ok(Some(cached_file)) => cached_file,
-            Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+            Ok(None) => return StatusCode::NOT_FOUND.into_response(),
             Err(err) => {
                 tracing::error!(
                     object_id,
@@ -136,7 +136,7 @@ async fn download_cached_file(
                     .await
                 {
                     Ok(Some(v)) => v,
-                    Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                    Ok(None) => return StatusCode::NOT_FOUND.into_response(),
                     Err(err) => {
                         tracing::error!(
                             object_id,
@@ -150,7 +150,7 @@ async fn download_cached_file(
 
             match download_from_cache(cached_file, db).await {
                 Ok(Some(v)) => v,
-                Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                Ok(None) => return StatusCode::NOT_FOUND.into_response(),
                 Err(err) => {
                     tracing::error!(
                         object_id,
@@ -181,7 +181,7 @@ async fn download_cached_file(
                     .await
                 {
                     Ok(Some(v)) => v,
-                    Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                    Ok(None) => return StatusCode::NOT_FOUND.into_response(),
                     Err(err) => {
                         tracing::error!(
                             object_id,
@@ -195,7 +195,7 @@ async fn download_cached_file(
 
             match download_from_cache(cached_file, db).await {
                 Ok(Some(v)) => v,
-                Ok(None) => return StatusCode::NO_CONTENT.into_response(),
+                Ok(None) => return StatusCode::NOT_FOUND.into_response(),
                 Err(err) => {
                     tracing::error!(
                         object_id,

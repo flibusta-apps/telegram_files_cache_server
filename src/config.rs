@@ -28,6 +28,7 @@ pub struct Config {
     pub files_url: String,
 
     pub bot_tokens: Vec<String>,
+    pub telegram_api_url: Option<reqwest::Url>,
     pub temp_channel_id: i64,
 
     pub sentry_dsn: Option<String>,
@@ -74,21 +75,24 @@ impl Config {
 
             cache_warmup_concurrency: get_parsed_or("CACHE_WARMUP_CONCURRENCY", 4),
 
-            upload_timeout_secs: get_parsed_or("UPLOAD_TIMEOUT_SECS", 600),
+            upload_timeout_secs: get_parsed_or("UPLOAD_TIMEOUT_SECS", 720),
 
             cross_normalized_reuse: get_parsed_or("CROSS_NORMALIZED_REUSE", true),
 
             downloader_api_key: get_secret("DOWNLOADER_API_KEY"),
-            downloader_url: get_env("DOWNLOADER_URL"),
+            downloader_url: get_env("DOWNLOADER_URL").trim_end_matches('/').to_owned(),
 
             library_api_key: get_secret("LIBRARY_API_KEY"),
-            library_url: get_env("LIBRARY_URL"),
+            library_url: get_env("LIBRARY_URL").trim_end_matches('/').to_owned(),
 
             files_api_key: get_secret("FILES_SERVER_API_KEY"),
-            files_url: get_env("FILES_SERVER_URL"),
+            files_url: get_env("FILES_SERVER_URL").trim_end_matches('/').to_owned(),
 
             bot_tokens: serde_json::from_str(&get_env("BOT_TOKENS"))
                 .expect("BOT_TOKENS must be a valid JSON array of strings"),
+            telegram_api_url: std::env::var("TELEGRAM_API_URL")
+                .ok()
+                .map(|url| url.parse().expect("TELEGRAM_API_URL must be a valid URL")),
             temp_channel_id: get_env("TEMP_CHANNEL_ID")
                 .parse()
                 .expect("TEMP_CHANNEL_ID must be a valid i64"),

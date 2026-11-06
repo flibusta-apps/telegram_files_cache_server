@@ -58,6 +58,9 @@ impl BookWithRemote {
     pub fn get_caption(self) -> String {
         let BookWithRemote { title, authors, .. } = self;
 
+        // A byte budget is conservative for both Unicode scalar and UTF-16
+        // Telegram limits. Reserve the prefix and two separating newlines.
+        let title = truncate_title(&title, 1024 - "📖 \n\n".len());
         let caption_title = format!("📖 {title}");
 
         let author_captions: Vec<String> = authors.into_iter().map(|a| a.get_caption()).collect();
@@ -78,6 +81,17 @@ impl BookWithRemote {
 
         format!("{caption_title}\n\n{caption_authors}")
     }
+}
+
+fn truncate_title(title: &str, budget: usize) -> String {
+    if title.len() <= budget {
+        return title.to_owned();
+    }
+    let mut end = budget - "…".len();
+    while !title.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &title[..end])
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -114,6 +128,16 @@ mod tests {
             uploaded: "2024-01-01".to_string(),
             authors,
             source: Source { id: 1 },
+        }
+    }
+
+    #[test]
+    fn long_title_is_truncated_with_ellipsis() {
+        for title in ["x".repeat(2000), "😀".repeat(2000)] {
+            let caption = book(&title, vec![author("Jane", "Doe", "")]).get_caption();
+            assert!(caption.len() <= 1024);
+            assert!(caption.encode_utf16().count() <= 1024);
+            assert!(caption.ends_with("…\n\n"));
         }
     }
 

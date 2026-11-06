@@ -34,6 +34,9 @@ where
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                return Err(Box::new(crate::error::NotFoundError) as crate::error::BoxError);
+            }
             let response = crate::error::check_status(response).await?;
 
             let text = response

@@ -50,11 +50,13 @@ pub async fn download_from_downloader(
             .send()
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-        let response = check_status(response).await?;
-
-        if response.status() == StatusCode::NO_CONTENT {
+        if matches!(
+            response.status(),
+            StatusCode::NO_CONTENT | StatusCode::NOT_FOUND
+        ) {
             return Ok(None);
         };
+        let response = check_status(response).await?;
 
         Ok(Some(response))
     })
@@ -80,6 +82,9 @@ pub async fn get_filename(
             .send()
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(Box::new(crate::error::NotFoundError) as BoxError);
+        }
         let response = check_status(response).await?;
 
         let text = response
@@ -87,7 +92,10 @@ pub async fn get_filename(
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
         match serde_json::from_str::<FilenameData>(&text) {
-            Ok(v) => Ok(v),
+            Ok(mut v) => {
+                cached_filename(&mut v, &object_type);
+                Ok(v)
+            }
             Err(err) => {
                 tracing::error!(
                     "Failed to decode FilenameData from downloader: {}. Response body: {:?}",
@@ -99,4 +107,36 @@ pub async fn get_filename(
         }
     })
     .await
+}
+
+// /filename has no force_zip query option. HTML is preserved as an archive by
+// the downloader; fb2zip already has the correct .zip extension.
+fn cached_filename(data: &mut FilenameData, object_type: &str) {
+    if object_type == "html" {
+        for filename in [&mut data.filename, &mut data.filename_ascii] {
+            if !filename.ends_with(".zip") {
+                filename.push_str(".zip");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_cached_filename_keeps_archive_extension() {
+        let mut data = FilenameData {
+            filename: "Книга.html".into(),
+            filename_ascii: "Book.html".into(),
+        };
+        cached_filename(&mut data, "html");
+        assert_eq!(data.filename, "Книга.html.zip");
+        assert_eq!(data.filename_ascii, "Book.html.zip");
+        cached_filename(&mut data, "html");
+        assert_eq!(data.filename_ascii, "Book.html.zip");
+        cached_filename(&mut data, "fb2zip");
+        assert_eq!(data.filename_ascii, "Book.html.zip");
+    }
 }

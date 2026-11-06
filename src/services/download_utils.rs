@@ -19,13 +19,19 @@ pub fn get_response_async_read(it: Response) -> impl AsyncRead {
         .compat()
 }
 
-/// Reads a response body into memory, refusing up-front when `Content-Length` exceeds
+/// Spools a response body to disk, refusing up-front when `Content-Length` exceeds
 /// `max_bytes` and enforcing the same cap while streaming (chunked / lying servers).
-pub async fn read_body_capped(
+pub async fn spool_body_capped(
     response: Response,
     max_bytes: usize,
-) -> Result<bytes::Bytes, Box<dyn std::error::Error + Send + Sync>> {
-    if let Some(len) = response.content_length() {
+) -> Result<super::temp_file::TempFile, Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(len) = response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .or_else(|| response.content_length())
+    {
         if len > max_bytes as u64 {
             return Err(Box::new(std::io::Error::other(format!(
                 "response body too large: {len} > {max_bytes} bytes"
@@ -34,16 +40,22 @@ pub async fn read_body_capped(
     }
 
     let mut stream = response.bytes_stream();
-    let mut buf = bytes::BytesMut::new();
+    let (guard, file) = super::temp_file::TempFile::create()?;
+    let mut file = tokio::fs::File::from_std(file);
+    let mut size = 0;
     while let Some(chunk) = stream.try_next().await? {
-        if buf.len() + chunk.len() > max_bytes {
+        if chunk.len() > max_bytes - size {
             return Err(Box::new(std::io::Error::other(format!(
                 "response body exceeded {max_bytes} bytes"
             ))));
         }
-        buf.extend_from_slice(&chunk);
+        use tokio::io::AsyncWriteExt;
+        file.write_all(&chunk).await?;
+        size += chunk.len();
     }
-    Ok(buf.freeze())
+    use tokio::io::AsyncWriteExt;
+    file.flush().await?;
+    Ok(guard)
 }
 
 const FALLBACK_FILENAME: &str = "file.bin";
@@ -100,6 +112,27 @@ pub fn build_download_headers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn response(body: &'static [u8], declared: Option<usize>) -> Response {
+        let mut builder = axum::http::Response::builder();
+        if let Some(size) = declared {
+            builder = builder.header(header::CONTENT_LENGTH, size);
+        }
+        builder.body(reqwest::Body::from(body)).unwrap().into()
+    }
+
+    #[tokio::test]
+    async fn spooling_enforces_declared_and_actual_caps() {
+        assert!(spool_body_capped(response(b"abc", Some(100)), 3)
+            .await
+            .is_err());
+        assert!(spool_body_capped(response(b"abcd", None), 3).await.is_err());
+        let file = spool_body_capped(response(b"abc", None), 3).await.unwrap();
+        assert_eq!(file.size().unwrap(), 3);
+        let mut content = Vec::new();
+        std::io::Read::read_to_end(&mut file.open().unwrap(), &mut content).unwrap();
+        assert_eq!(content, b"abc");
+    }
 
     #[test]
     fn test_build_download_headers_base64_roundtrip() {

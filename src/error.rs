@@ -9,6 +9,17 @@ use reqwest::Response as HttpResponse;
 
 pub type BoxError = Box<dyn Error + Send + Sync>;
 
+#[derive(Debug)]
+pub struct NotFoundError;
+
+impl std::fmt::Display for NotFoundError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("book not found")
+    }
+}
+
+impl Error for NotFoundError {}
+
 /// Default `Retry-After` (seconds) used when an upstream 429 carries no usable hint.
 pub const DEFAULT_RETRY_AFTER_SECS: u64 = 10;
 
@@ -112,6 +123,9 @@ pub async fn check_status(response: HttpResponse) -> Result<HttpResponse, BoxErr
 /// Maps a service error to an HTTP response: upstream 429 → 429 + Retry-After + JSON,
 /// local DB failure → 500, everything else → 502.
 pub fn error_response(err: &(dyn Error + 'static)) -> Response {
+    if chain(err).any(|e| e.is::<NotFoundError>()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     if let Some(secs) = rate_limit_secs(err) {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -132,6 +146,12 @@ pub fn error_response(err: &(dyn Error + 'static)) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_not_found_maps_to_404() {
+        let error = SharedError(std::sync::Arc::new(Box::new(NotFoundError)));
+        assert_eq!(error_response(&error).status(), StatusCode::NOT_FOUND);
+    }
 
     #[test]
     fn rate_limited_maps_to_429_with_header() {
