@@ -1,6 +1,6 @@
 use dotenvy::dotenv;
 use sentry::{integrations::debug_images::DebugImagesIntegration, types::Dsn, ClientOptions};
-use sentry_tracing::EventFilter;
+mod telemetry;
 use std::{net::SocketAddr, str::FromStr};
 use telegram_files_cache_server::{config, db, views};
 use tracing::info;
@@ -17,21 +17,13 @@ async fn main() {
         .as_ref()
         .map(|dsn| Dsn::from_str(dsn).expect("SENTRY_DSN must be a valid Sentry DSN"));
 
-    let options = ClientOptions {
-        dsn,
-        default_integrations: true,
-        ..Default::default()
-    }
-    .add_integration(DebugImagesIntegration::new());
+    let mut options = ClientOptions::default();
+    options.dsn = dsn;
+    let options = options.add_integration(DebugImagesIntegration::new());
 
     let _guard = sentry::init(options);
 
-    let sentry_layer = sentry_tracing::layer()
-        .event_filter(|md| match md.level() {
-            &tracing::Level::ERROR => EventFilter::Event,
-            _ => EventFilter::Ignore,
-        })
-        .enable_span_attributes();
+    let sentry_layer = telemetry::error_layer();
 
     let env_filter =
         tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
@@ -39,6 +31,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_target(false))
         .with(env_filter)
+        .with(telemetry::span_layer())
         .with(sentry_layer)
         .init();
 

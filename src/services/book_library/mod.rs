@@ -88,3 +88,28 @@ pub async fn get_books(
 
     _make_request("/api/v1/books/base", params, max_retries).await
 }
+
+#[cfg(test)]
+mod dependency_tests {
+    #[test]
+    fn reqwest_query_preserves_pagination_and_timestamp_encoding() {
+        let params = vec![
+            ("page", "2".to_owned()),
+            ("size", "100".to_owned()),
+            ("uploaded_gte", "2026-11-08T12:30:00+03:00".to_owned()),
+            ("uploaded_lte", "2026-11-09 12:30:00".to_owned()),
+        ];
+        let request = reqwest::Client::new()
+            .get("http://localhost/api/v1/books/base")
+            .query(&params)
+            .build()
+            .unwrap();
+        let pairs: Vec<_> = request.url().query_pairs().collect();
+        assert_eq!(pairs.len(), params.len());
+        for ((key, value), (expected_key, expected_value)) in pairs.iter().zip(&params) {
+            assert_eq!(key, expected_key);
+            assert_eq!(value, expected_value);
+        }
+        assert!(request.url().as_str().contains("%2B03%3A00"));
+    }
+}
