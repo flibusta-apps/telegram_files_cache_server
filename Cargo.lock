@@ -3378,7 +3378,7 @@ dependencies = [
  "futures",
  "metrics",
  "once_cell",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest 0.13.5",
  "sentry",
  "sentry-tracing",
