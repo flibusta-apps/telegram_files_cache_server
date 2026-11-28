@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::time::Duration;
 
-use rand::Rng;
+use rand::RngExt;
 use tokio::time::sleep;
 
 /// Retry budget for calls made inline in a user-facing HTTP handler:
@@ -81,7 +81,7 @@ where
                     if is_retryable(reqwest_err) {
                         attempt += 1;
                         let base = Duration::from_secs(2u64.pow(attempt.min(6)));
-                        let jitter_ms = rand::thread_rng().gen_range(0..500u64);
+                        let jitter_ms = rand::rng().random_range(0..500u64);
                         let delay = base + Duration::from_millis(jitter_ms);
                         tracing::warn!(
                             "Transient error (attempt {}/{}): {}. Retrying in {:?}",
